@@ -23,7 +23,7 @@ setup(
     author_email="{{ cookiecutter.author_email }}",
 
     description="{{ cookiecutter.package_description }}",
-    long_description=read("README.rst"),
+    long_description=read("README.md"),
 
     packages=find_packages(exclude=('tests',)),
 

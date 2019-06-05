@@ -2,7 +2,10 @@ import importlib
 import os
 from pathlib import Path
 import sys
+from typing import Dict
 
+import yaml
+from spin import settings
 from spin.cluster import ClusterDoerInterface
 
 
@@ -56,3 +59,18 @@ def load_project_settings():
     sys.path = sys.path[1:]
 
     return spin_settings
+
+
+def load_spinrc():
+    with open(str(settings.SPIN_RC_PATH), 'r') as f:
+        return yaml.load(f, Loader=yaml.SafeLoader)
+
+
+def save_spinrc(d: Dict):
+    with open(str(settings.SPIN_RC_PATH), 'r') as f:
+        return yaml.dump(d, f, Dumper=yaml.SafeDumper)
+
+
+if __name__ == '__main__':
+    rc = load_spinrc()
+    print(f'rc: {rc}')

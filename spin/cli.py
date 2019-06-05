@@ -1,9 +1,11 @@
+import shutil
 import time
+from pathlib import Path
 
 import click
 from cookiecutter.main import cookiecutter
 
-from spin import spin_settings, settings, utils
+from spin import settings, spin_settings, utils
 
 
 ############################################
@@ -16,6 +18,38 @@ def root(ctx):
     Load project settings
     """
     pass
+
+
+############################################
+# INIT
+############################################
+@root.command()
+@click.pass_context
+@click.option('--name', help="Your full name", prompt="Your full name (spaces fine, no quotes needed)")
+@click.option('--email', help="Your email", prompt="Your email")
+@click.option('--github-username', help="Your Github Username", prompt="Your Github Username")
+def init(ctx, name, email, github_username):
+    """Create .spinrc in your home directory."""
+    # TODO: Deal with existing .cookiecutterrc
+    spin_tempname = '.spintmp'
+    extra_context = {
+        'name': name,
+        'email': email,
+        'github_username': github_username,
+        'spin_tempname': spin_tempname,
+    }
+
+    _ = cookiecutter(
+        str(settings.TEMPLATES_PATH / 'spin_config'),
+        extra_context=extra_context,
+        no_input=True,
+        output_dir=Path.home()
+    )
+
+    tmpdir = Path.home() / spin_tempname
+    shutil.copy2(str(tmpdir / settings.SPIN_RC_FILENAME), str(Path.home()))
+    shutil.rmtree(tmpdir)
+
 
 ############################################
 # UP
@@ -36,7 +70,6 @@ def up(ctx):
 @click.option('--install/--no-install', is_flag=True, default=True)
 @click.pass_context
 def project(ctx, pkg_slug, output_dir, config, install):
-
     # extra_content is a cookiecutter concept which overwrites cookiecutter.json
     extra_context = {}
     if pkg_slug is not None:
@@ -59,5 +92,3 @@ def project(ctx, pkg_slug, output_dir, config, install):
 
     print(f"Created project at {project_dir}")
 
-
-# spin_settings = spin_settings.load_project_settings()
