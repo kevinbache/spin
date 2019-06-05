@@ -30,7 +30,6 @@ def root(ctx):
 @click.option('--github-username', help="Your Github Username", prompt="Your Github Username")
 def init(ctx, name, email, github_username):
     """Create .spinrc in your home directory."""
-    # TODO: Deal with existing .cookiecutterrc
     spin_tempname = '.spintmp'
     extra_context = {
         'name': name,
@@ -74,6 +73,8 @@ def project(ctx, pkg_slug, output_dir, config, install):
     extra_context = {}
     if pkg_slug is not None:
         extra_context['pkg_slug'] = pkg_slug
+
+    extra_context.update(spin_settings.load_spinrc()['project'])
 
     project_dir = cookiecutter(
         str(settings.TEMPLATES_PATH / 'project'),

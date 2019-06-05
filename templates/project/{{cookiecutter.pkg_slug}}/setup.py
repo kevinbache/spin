@@ -19,8 +19,8 @@ setup(
     url="{{ cookiecutter.package_url }}",
     license='MIT',
 
-    author="{{ cookiecutter.author_name }}",
-    author_email="{{ cookiecutter.author_email }}",
+    author="{{ cookiecutter.full_name }}",
+    author_email="{{ cookiecutter.email }}",
 
     description="{{ cookiecutter.package_description }}",
     long_description=read("README.md"),

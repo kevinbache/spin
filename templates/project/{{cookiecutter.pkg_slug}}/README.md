@@ -14,4 +14,4 @@
 
 ## Authors
 
-`{{ cookiecutter.pkg_slug }}` was written by `{{ cookiecutter.author_name }} <{{ cookiecutter.author_email }}>`_.
+`{{ cookiecutter.pkg_slug }}` was written by `{{ cookiecutter.full_name }} <{{ cookiecutter.email }}>`_.

@@ -1,4 +1,4 @@
-MAINTAINER {{cookiecutter.author_name}} "{{cookiecutter.author_email}}"
+MAINTAINER {{cookiecutter.full_name}} "{{cookiecutter.email}}"
 
 # Install the nightly version of tensorflow
 FROM tensorflow/tensorflow:nightly-py3
