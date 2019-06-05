@@ -82,6 +82,43 @@ def project(ctx, pkg_slug, output_dir, config, install):
         no_input=not config,
         output_dir=output_dir
     )
+
+    if install:
+        time.sleep(1.0)
+        exitcode, out, err = utils.get_exitcode_stdout_stderr(f'pip install --editable {project_dir}')
+        print(f"New project install finished with exit code: {exitcode}")
+        if out:
+            print(f'    stdout: {out}')
+        if err:
+            print(f'    stderr: {err}')
+
+    print(f"Created project at {project_dir}")
+
+
+############################################
+# CLUSTER
+############################################
+@up.command()
+@click.pass_context
+def cluster(ctx):
+    settings = spin_settings.load_project_settings()
+    settings.cluster_doer.
+
+
+    # extra_content is a cookiecutter concept which overwrites cookiecutter.json
+    extra_context = {}
+    if pkg_slug is not None:
+        extra_context['pkg_slug'] = pkg_slug
+
+    extra_context.update(spin_settings.load_spinrc()['project'])
+
+    project_dir = cookiecutter(
+        str(settings.TEMPLATES_PATH / 'project'),
+        extra_context=extra_context,
+        no_input=not config,
+        output_dir=output_dir
+    )
+
     if install:
         time.sleep(1.0)
         exitcode, out, err = utils.get_exitcode_stdout_stderr(f'pip install --editable {project_dir}')
