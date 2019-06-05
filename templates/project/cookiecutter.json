@@ -1,0 +1,15 @@
+{
+    "pkg_slug": "my_project",
+    "pkg_name": "{{ cookiecutter.pkg_slug|title|replace('-', ' ') }}",
+    "package_description": "Brown, paper, tied up with string.",
+    "package_version": "0.0.1",
+
+    "main_func_name": "main_funk",
+    "docker_entrypoint_script_name": "{{ cookiecutter.pkg_slug }}_docker_entrypoint",
+
+    "github_username": "myusername",
+    "package_url": "git@github.com:{{ cookiecutter.github_username }}/{{ cookiecutter.pkg_slug }}",
+
+    "author_name": "My Name",
+    "author_email": "author.name@authormail.com"
+}
