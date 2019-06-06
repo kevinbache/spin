@@ -1,21 +1,21 @@
 from pathlib import Path
 
-from spin.cluster import GkeClusterDoer, NodePoolConfig
-from spin.spin_settings import SpinSettings
+from spin.cluster import GkeCluster, NodePool
+from spin.spin_config import ProjectConfig
 
 PACKAGE_ROOT_PATH = Path(__file__).resolve().parent
 
 PROJECT_ROOT_PATH = PACKAGE_ROOT_PATH / '..'
 TESTS_PATH = PROJECT_ROOT_PATH / 'test'
 
-SPIN_SETTINGS = SpinSettings(
-    cluster_doer=GkeClusterDoer(
+SPIN_SETTINGS = ProjectConfig(
+    cluster=GkeCluster(
         cluster_name='my-cluster',
         zone='us-central1-a',
         master_machine_type='n1-standard-4',
         num_master_nodes=1,
-        node_pool_configs=(
-            NodePoolConfig(
+        node_pools=(
+            NodePool(
                 name='gpu-workers',
                 machine_type='n1-standard-4',
                 accelerator='nvidia-tesla-k80',
@@ -25,7 +25,7 @@ SPIN_SETTINGS = SpinSettings(
                 max_nodes=10,
                 preemptible=True,
             ),
-            NodePoolConfig(
+            NodePool(
                 name='workers',
                 machine_type='n1-standard-4',
                 accelerator=None,

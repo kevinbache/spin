@@ -3,16 +3,16 @@ from pathlib import Path
 import pytest
 
 from spin import cluster
-from spin import spin_settings
+from spin import spin_config
 
-SPIN_SETTINGS = spin_settings.SpinSettings(
-    cluster_doer=cluster.GkeClusterDoer(
+SPIN_SETTINGS = spin_config.ProjectConfig(
+    cluster=cluster.GkeCluster(
         cluster_name='my-cluster',
         zone='us-central1-a',
         master_machine_type='n1-standard-4',
         num_master_nodes=1,
-        node_pool_configs=(
-            cluster.NodePoolConfig(
+        node_pools=(
+            cluster.NodePool(
                 name='gpu-workers',
                 machine_type='n1-standard-4',
                 accelerator='nvidia-tesla-k80',
@@ -22,7 +22,7 @@ SPIN_SETTINGS = spin_settings.SpinSettings(
                 max_nodes=10,
                 preemptible=True,
             ),
-            cluster.NodePoolConfig(
+            cluster.NodePool(
                 name='workers',
                 machine_type='n1-standard-4',
                 accelerator=None,
@@ -39,17 +39,17 @@ SPIN_SETTINGS = spin_settings.SpinSettings(
 
 
 def test_load_project_settings():
-    VAR_NAME = spin_settings.SETTINGS_FILE_ENV_VARIABLE_NAME
+    VAR_NAME = spin_config.SETTINGS_FILE_ENV_VARIABLE_NAME
     if VAR_NAME in os.environ:
         del os.environ[VAR_NAME]
 
     # fail without env var
     with pytest.raises(ValueError):
-        spin_settings.load_project_settings()
+        spin_config.load_project_config()
 
     # work with env var
     os.environ[VAR_NAME] = str(Path(__file__).resolve())
-    loaded_settings = spin_settings.load_project_settings()
+    loaded_settings = spin_config.load_project_config()
     assert loaded_settings == SPIN_SETTINGS
 
     # check that SpinSettings.__eq__ is doing what we think

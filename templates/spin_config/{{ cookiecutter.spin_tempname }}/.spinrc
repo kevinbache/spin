@@ -1,5 +1,0 @@
-# Settings file for the Python package `spin`.  YAML format.
-project:
-    full_name: {{ cookiecutter.name }}
-    email: {{ cookiecutter.email }}
-    github_username: {{ cookiecutter.github_username }}

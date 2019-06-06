@@ -4,7 +4,7 @@ from typing import Text, Iterable
 from spin.utils import CommandLineInterfacerMixin
 
 
-class NodePoolConfig:
+class NodePool(CommandLineInterfacerMixin):
     def __init__(
             self,
             name='my-pool',
@@ -15,15 +15,19 @@ class NodePoolConfig:
             num_nodes=1,
             max_nodes=5,
             preemptible=True,
+            verbose=True,
     ):
+        super().__init__(verbose)
         self.name = name
         self.machine_type = machine_type
         self.accelerator = accelerator
         self.accelerator_count_per_node = accelerator_count_per_node
-        self.min_workers = min_nodes
-        self.num_workers = num_nodes
-        self.max_workers = max_nodes
+        self.min_nodes = min_nodes
+        self.num_nodes = num_nodes
+        self.max_nodes = max_nodes
         self.preemptible = preemptible
+
+        self.cluster = None
 
     def __eq__(self, o: object) -> bool:
         return type(self) == type(o) and self.__dict__ == o.__dict__
@@ -31,14 +35,29 @@ class NodePoolConfig:
     def __hash__(self) -> int:
         return hash(self.__dict__)
 
-    def _get_create_command(self, cluster_name: Text):
+    def set_cluster(self, cluster: 'GkeCluster'):
+        self.cluster = cluster
+
+    def create(self, error_if_exists=False):
+        # https://cloud.google.com/sdk/gcloud/reference/container/clusters/create
+        # https://cloud.google.com/compute/docs/machine-types
+        # https://cloud.google.com/kubernetes-engine/docs/tutorials/migrating-node-pool
+        if self.cluster is None:
+            raise ValueError("Cluster is not set.")
+
+        if self.exists():
+            if error_if_exists:
+                raise ValueError(f"A node pool named {self.name} already exists.")
+            else:
+                return 0, None, None
+
         command = f'''gcloud container node-pools create {self.name} \
-            --cluster={cluster_name} \
+            --cluster={self.cluster.name} \
             --machine-type={self.machine_type} \
             --min-nodes={self.min_nodes} \
             --num-nodes={self.num_nodes} \
             --max-nodes={self.max_nodes} \
-            --zone={self.zone}
+            --zone={self.cluster.zone}
         '''
 
         if self.preemptible:
@@ -47,46 +66,72 @@ class NodePoolConfig:
         if self.accelerator_count_per_node > 0:
             command += f' \ \n --accelerator=type={self.accelerator},count={self.accelerator_count_per_node}'
 
-        return command
+        return self._run(command)
+
+    def delete(self, do_async=True):
+        command = f"""gcloud container node-pools delete {self.cluster.name} \
+            --cluster {self.cluster.name} \
+            --zone={self.cluster.zone}"""
+        if do_async:
+            command += ' \ \n --async'
+        self._run(command)
+
+    def resize(self):
+        if self.cluster is None:
+            raise ValueError("Cluster is not set.")
+
+        command = f'''gcloud container clusters resize {self.cluster.name} \
+            --node-pool {self.name} \
+            --min-nodes {self.min_nodes} \
+            --num-nodes {self.num_nodes} \
+            --max-nodes {self.max_nodes} 
+        '''
+        return self._run(command)
+
+    def exists(self):
+        command = f"""gcloud container node-pools list \
+            --cluster={self.cluster.name} \
+            --zone={self.cluster.zone} \
+            --format="value(NAME)" """
+        exitcode, out, err = self._run(command)
+        pool_names = out.strip().split('\n')
+        return self.name in pool_names
 
 
-class ClusterDoerInterface(abc.ABC):
+class Cluster(abc.ABC):
     @abc.abstractmethod
-    def create_cluster(
-            self,
-            cluster_name='my-cluster',
-            num_nodes=1,
-            machine_type='n1-standard-8',
-    ):
+    def create(self):
         pass
 
     @abc.abstractmethod
-    def add_node_pool(self, config: NodePoolConfig):
+    def delete(self):
         pass
 
     @abc.abstractmethod
-    def resize_node_pool(self, name: Text, min_workers: int, num_workers: int, max_workers: int):
+    def exists(self):
         pass
 
 
-class GkeClusterDoer(ClusterDoerInterface, CommandLineInterfacerMixin):
+class GkeCluster(Cluster, CommandLineInterfacerMixin):
     def __init__(
             self,
             cluster_name='my-cluster',
             zone='us-central1-a',
-            master_machine_type='n1-standard-4',
             num_master_nodes=1,
-            node_pool_configs: Iterable[NodePoolConfig]=(),
+            master_machine_type='n1-standard-4',
+            node_pools: Iterable[NodePool] = (),
             verbose=True,
     ):
         super().__init__()
 
         self.cluster_name = cluster_name
         self.zone = zone
-        self.master_machine_type = master_machine_type
         self.num_master_nodes = num_master_nodes
+        self.master_machine_type = master_machine_type
 
-        self.node_pool_configs = {c.name: c for c in node_pool_configs}
+        self.node_pools = {}
+        for node_pool in node_pools:
+            self._add_node_pool(node_pool)
 
         self.verbose = verbose
 
@@ -96,52 +141,38 @@ class GkeClusterDoer(ClusterDoerInterface, CommandLineInterfacerMixin):
     def __hash__(self) -> int:
         return hash(self.__dict__)
 
-    def create_cluster(
-            self,
-            cluster_name=None,
-            zone=None,
-            num_nodes=None,
-            machine_type=None,
-    ):
+    def _add_node_pool(self, node_pool: NodePool):
+        node_pool.set_cluster(self)
+        self.node_pools[node_pool.name] = node_pool
+
+    def create(self, error_if_exists=False):
         # https://cloud.google.com/sdk/gcloud/reference/container/clusters/create
         # https://cloud.google.com/compute/docs/machine-types
-
-        cluster_name = cluster_name or self.cluster_name
-        zone = zone or self.zone
-        num_nodes = num_nodes or self.num_master_nodes
-        machine_type = machine_type or self.master_machine_type
-
         # 3:07 for cluster startup
 
-        command = f"""gcloud container clusters create {cluster_name} \
-            --zone {zone} \
-            --num-nodes {num_nodes} \
-            --machine-type={machine_type} \
+        if self.exists():
+            if error_if_exists:
+                raise ValueError(f"A cluster named {self.cluster_name} already exists.")
+            else:
+                return 0, None, None
+
+        command = f"""gcloud container clusters create {self.cluster_name} \
+            --zone={self.zone} \
+            --num-nodes={self.num_master_nodes} \
+            --machine-type={self.master_machine_type} \
             --enable-autoupgrade \
             --enable-autoscaling
         """
         return self._run(command)
 
-    def does_cluster_exist(self, cluster_name=None, zone=None) -> bool:
-        cluster_name = cluster_name or self.cluster_name
-        zone = zone or self.zone
-        command = f"""gcloud container clusters list --zone={zone} --format="value(NAME)" """
+    def delete(self, do_async=True):
+        command = f"gcloud container clusters delete {self.cluster_name} --zone={self.zone}"
+        if do_async:
+            command += ' --async'
+        self._run(command)
+
+    def exists(self) -> bool:
+        command = f"""gcloud container clusters list --zone={self.zone} --format="value(NAME)" """
         exitcode, out, err = self._run(command)
         cluster_names = out.strip().split('\n')
-        return cluster_name in cluster_names
-
-    def add_node_pool(self, config: NodePoolConfig):
-        # https://cloud.google.com/sdk/gcloud/reference/container/clusters/create
-        # https://cloud.google.com/compute/docs/machine-types
-        # https://cloud.google.com/kubernetes-engine/docs/tutorials/migrating-node-pool
-        command = config._get_create_command(self.cluster_name)
-        return self._run(command)
-
-    def resize_node_pool(self, pool_name: Text, min_nodes: int, num_nodes: int, max_nodes: int):
-        command = f'''gcloud container clusters resize {self.cluster_name} \
-            --node-pool {pool_name} \
-            --min-nodes {min_nodes} \
-            --num-nodes {num_nodes} \
-            --max-nodes {max_nodes} 
-        '''
-        return self._run(command)
+        return self.cluster_name in cluster_names
