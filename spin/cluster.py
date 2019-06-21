@@ -1,6 +1,9 @@
 import abc
-from typing import Text, Iterable
+import json
+from pathlib import Path
+from typing import Iterable, Text
 
+from spin import settings, ssh
 from spin.utils import CommandLineInterfacerMixin
 
 
@@ -59,12 +62,13 @@ class NodePool(CommandLineInterfacerMixin):
             --max-nodes={self.max_nodes} \
             --zone={self.cluster.zone}
         '''
-
         if self.preemptible:
-            command += ' \ \n --preemptible'
+            command += ' --preemptible'
 
         if self.accelerator_count_per_node > 0:
-            command += f' \ \n --accelerator=type={self.accelerator},count={self.accelerator_count_per_node}'
+            command += f' --accelerator=type={self.accelerator},count={self.accelerator_count_per_node}'
+
+        print("nodepool.create command: {}".format(command))
 
         return self._run(command)
 
@@ -115,7 +119,7 @@ class Cluster(abc.ABC):
 class GkeCluster(Cluster, CommandLineInterfacerMixin):
     def __init__(
             self,
-            cluster_name='my-cluster',
+            name='my-cluster',
             zone='us-central1-a',
             num_master_nodes=1,
             master_machine_type='n1-standard-4',
@@ -124,7 +128,7 @@ class GkeCluster(Cluster, CommandLineInterfacerMixin):
     ):
         super().__init__()
 
-        self.cluster_name = cluster_name
+        self.name = name
         self.zone = zone
         self.num_master_nodes = num_master_nodes
         self.master_machine_type = master_machine_type
@@ -145,28 +149,38 @@ class GkeCluster(Cluster, CommandLineInterfacerMixin):
         node_pool.set_cluster(self)
         self.node_pools[node_pool.name] = node_pool
 
-    def create(self, error_if_exists=False):
+    def create(self, error_if_exists=False, create_node_pools=True):
         # https://cloud.google.com/sdk/gcloud/reference/container/clusters/create
         # https://cloud.google.com/compute/docs/machine-types
         # 3:07 for cluster startup
 
         if self.exists():
             if error_if_exists:
-                raise ValueError(f"A cluster named {self.cluster_name} already exists.")
+                raise ValueError(f"A cluster named {self.name} already exists.")
             else:
                 return 0, None, None
 
-        command = f"""gcloud container clusters create {self.cluster_name} \
+        command = f"""gcloud container clusters create {self.name} \
             --zone={self.zone} \
             --num-nodes={self.num_master_nodes} \
             --machine-type={self.master_machine_type} \
-            --enable-autoupgrade \
-            --enable-autoscaling
+            --enable-autoupgrade 
         """
-        return self._run(command)
+        print("cluster.create command: {}".format(command))
+        outs = [self._run(command)]
+
+        if create_node_pools:
+            for node_pool in self.node_pools:
+                if self.verbose:
+                    print(f"Creating node pool {node_pool} at {time.clock()}. ", end='')
+                outs.append(node_pool.create())
+                if self.verbose:
+                    print("Done.")
+
+        return outs
 
     def delete(self, do_async=True):
-        command = f"gcloud container clusters delete {self.cluster_name} --zone={self.zone}"
+        command = f"gcloud container clusters delete {self.name} --zone={self.zone}"
         if do_async:
             command += ' --async'
         self._run(command)
@@ -175,4 +189,5 @@ class GkeCluster(Cluster, CommandLineInterfacerMixin):
         command = f"""gcloud container clusters list --zone={self.zone} --format="value(NAME)" """
         exitcode, out, err = self._run(command)
         cluster_names = out.strip().split('\n')
-        return self.cluster_name in cluster_names
+        return self.name in cluster_names
+

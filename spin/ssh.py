@@ -72,10 +72,15 @@ class SshKeyCreater(utils.CommandLineInterfacerMixin):
             verbose=verbose,
         )
 
-
     @classmethod
     def _get_pub_from_private(self, private_key_path: Path):
         return Path(str(private_key_path) + '.pub')
+
+    @classmethod
+    def _get_private_from_pub(self, public_key_path: Path):
+        if public_key_path.suffix != '.pub':
+            raise ValueError(f"Expected public key filename to end in .pub.  Got: {str(public_key_path)}.")
+        return Path(str(public_key_path[:-4]))
 
     def create(
             self,

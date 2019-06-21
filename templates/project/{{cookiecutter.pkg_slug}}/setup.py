@@ -33,7 +33,7 @@ setup(
     # `{{ cookiecutter.pkg_slug }}.{{ cookiecutter.docker_entrypoint_script_name }}`
     entry_points={
         'console_scripts': [
-            '{{ cookiecutter.docker_entrypoint_script_name }}={{ cookiecutter.pkg_slug }}.{{ cookiecutter.docker_entrypoint_script_name }}:{{ cookiecutter.main_func_name }}'
+            '{{ cookiecutter.docker_entrypoint_script_name }}={{ cookiecutter.pkg_slug }}.{{ cookiecutter.docker_entrypoint_script_name }}:{{ cookiecutter.main_func_name }}',
         ],
     },
 

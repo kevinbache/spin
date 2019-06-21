@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devbox
+spec:
+  selector:
+    matchLabels:
+      run: devbox
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        run: devbox
+    spec:
+      containers:
+      - name: devbox
+        # TODO: dynamic devbox location
+        image: gcr.io/kb-experiment/devbox:latest
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: devbox
+  labels:
+    run: devbox
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  - port: 22
+    targetPort: 22
+    protocol: TCP
+    name: ssh
+  selector:
+    run: devbox

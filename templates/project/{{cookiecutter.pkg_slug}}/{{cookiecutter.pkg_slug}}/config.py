@@ -8,9 +8,10 @@ PACKAGE_ROOT_PATH = Path(__file__).resolve().parent
 PROJECT_ROOT_PATH = PACKAGE_ROOT_PATH / '..'
 TESTS_PATH = PROJECT_ROOT_PATH / 'test'
 
-SPIN_SETTINGS = ProjectConfig(
+PROJECT_CONFIG = ProjectConfig(
+    name={{ cookiecutter.pkg_slug }},
     cluster=GkeCluster(
-        cluster_name='my-cluster',
+        name='my-cluster',
         zone='us-central1-a',
         master_machine_type='n1-standard-4',
         num_master_nodes=1,
@@ -39,6 +40,3 @@ SPIN_SETTINGS = ProjectConfig(
         verbose=True,
     ),
 )
-
-if __name__ == '__main__':
-    print(PACKAGE_ROOT_PATH)

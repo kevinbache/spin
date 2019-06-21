@@ -1,9 +1,15 @@
+from pathlib import Path
+
+import jinja2
 import logging
 import shlex
 from subprocess import Popen, PIPE
+import time
 from typing import Text, Dict, Any, Iterable
 
 import yaml
+
+from spin import settings
 
 
 def snake_2_camel(name, do_cap_first=False):
@@ -41,11 +47,16 @@ class CommandLineInterfacerMixin:
     def __init__(self, verbose=True):
         self.verbose = verbose
 
-    def _run(self, command: Text):
+    def _run(self, command: Text, error_on_nonzero_exit=True):
         if self.verbose:
             logging.info(f'Running shell command: {command}')
 
         exitcode, stdout, stderr = get_exitcode_stdout_stderr(command)
+
+        if error_on_nonzero_exit and exitcode:
+            raise ValueError(f"Got nonzero exit code {exitcode} from command `{command}`.  "
+                             f"Stdout: {stdout}.  "
+                             f"Stderr: {stderr}.")
 
         if self.verbose:
             logging.info(f'exitcode: {exitcode}')
@@ -106,3 +117,43 @@ class YamlBouncer(DictBouncer):
     def from_yaml(cls, filename: Text):
         with open(filename, 'r') as f:
             return cls.from_dict(yaml.load(f, Loader=yaml.SafeLoader))
+
+
+def confirm_prompt(prompt_str: Text):
+    while True:
+        input_str = input(f'{prompt_str} ([y]es/[n]o): ').lower().strip()
+        if input_str[:1] == 'y':
+            return True
+        elif input_str[:1] == 'n':
+            return False
+        else:
+            print('Unrecognized input')
+
+
+class Timer:
+    def __init__(self, name: Text):
+        self.name = name
+
+    def __enter__(self):
+        self.t = time.time()
+        print(f"Starting timer {self.name} at time {self.t}.", end="")
+
+    def __exit__(self, *args):
+        print(f"Took {time.time() - self.t}")
+
+
+def render_template(template_fullfile: Text, context_dict: Dict):
+    """Render a jinja template."""
+    p = Path(template_fullfile)
+    return jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(p.parent))
+    ).get_template(str(p.name)).render(context_dict)
+
+
+if __name__ == '__main__':
+    # if confirm_prompt('Do you want to continue?'):
+    #     print("Continued!")
+    # else:
+    #     print("Stopped!")
+
+    render_template(settings.TEMPLATES_DIR)
