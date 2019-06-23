@@ -35,9 +35,9 @@ class Server:
     def send_from_client(self, url_path: Text, d: Dict) -> requests.Response:
         return requests.post(self.get_url(url_path), json=d)
 
-    @abc.abstractmethod
     def serve(self):
-        pass
+        # TODO: Secure me
+        app.run(debug=True)
 
 
 TextDict = Dict[Text, Text]

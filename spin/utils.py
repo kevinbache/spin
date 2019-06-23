@@ -42,7 +42,7 @@ def get_exitcode_stdout_stderr(cmd):
     return exitcode, out.decode('utf-8'), err.decode('utf-8')
 
 
-class CommandLineInterfacerMixin:
+class ShellRunnerMixin:
     """Can run commands from the command line."""
     def __init__(self, verbose=True):
         self.verbose = verbose

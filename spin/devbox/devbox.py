@@ -5,7 +5,7 @@ from typing import Text
 from spin import cluster, utils, settings, ssh
 
 
-class Devbox(utils.CommandLineInterfacerMixin):
+class Devbox(utils.ShellRunnerMixin):
     DEVBOX_YAML_FILE = settings.TEMPLATES_PATH / 'devbox' / 'app.yaml'
     # TODO: Dynamic ssh path?  This is coupled with the docker account that we're logging in as
     REMOTE_PUBLIC_KEY_FOLDER = '/root/.ssh/'

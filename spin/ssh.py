@@ -7,7 +7,18 @@ from typing import Text, Optional
 from spin import utils
 
 
-class FileModifier:
+def add_line_if_does_not_exist(filename: Text, line: Text):
+    """Add the given line to the file unless it's already in the file."""
+    with open(filename, 'a') as f:
+        lines = f.readlines()
+        if line in lines:
+            return
+        else:
+            f.writelines([line])
+    return
+
+
+class FileBlockModifier:
     def __init__(
             self,
             block_start_str=r'######### begin added by spin #########',
@@ -55,7 +66,7 @@ class FileModifier:
         return
 
 
-class SshKeyCreater(utils.CommandLineInterfacerMixin):
+class SshKeyCreater(utils.ShellRunnerMixin):
     def __init__(
             self,
             private_key_filename='~/.ssh/id_rsa',
@@ -151,7 +162,7 @@ class SshConfigModifier:
 
         self.verbose = verbose
 
-        self.file_modifier = FileModifier()
+        self.file_modifier = FileBlockModifier()
 
     # https://unix.stackexchange.com/questions/69314/automated-ssh-keygen-without-passphrase-how
     '''ssh-keygen -b 2048 -t rsa -f /tmp/sshkey -q -N ""'''
@@ -220,18 +231,18 @@ class SshConfigModifier:
 
 
 if __name__ == '__main__':
-    m = SshConfigModifier()
-    print()
-    print(open(m.config_path, 'r').read())
-    m.add_host_entry(
-        host_tag='host_tag',
-        host_name='localhost',
-        user='kevin',
-        identity_file='~/.ssh/id_rsa',
-        forward_agent=True,
-        add_keys_to_agent=None,
-        do_replace_existing_spin_hosts_entry=True,
-    )
-    print()
-    print(open(m.config_path, 'r').read())
+    # m = SshConfigModifier()
+    # print()
+    # print(open(m.config_path, 'r').read())
+    # m.add_host_entry(
+    #     host_tag='host_tag',
+    #     host_name='localhost',
+    #     user='kevin',
+    #     identity_file='~/.ssh/id_rsa',
+    #     forward_agent=True,
+    #     add_keys_to_agent=None,
+    #     do_replace_existing_spin_hosts_entry=True,
+    # )
+    # print()
+    # print(open(m.config_path, 'r').read())
 

@@ -4,10 +4,10 @@ from pathlib import Path
 from typing import Iterable, Text
 
 from spin import settings, ssh
-from spin.utils import CommandLineInterfacerMixin
+from spin.utils import ShellRunnerMixin
 
 
-class NodePool(CommandLineInterfacerMixin):
+class NodePool(ShellRunnerMixin):
     def __init__(
             self,
             name='my-pool',
@@ -116,7 +116,7 @@ class Cluster(abc.ABC):
         pass
 
 
-class GkeCluster(Cluster, CommandLineInterfacerMixin):
+class GkeCluster(Cluster, ShellRunnerMixin):
     def __init__(
             self,
             name='my-cluster',
