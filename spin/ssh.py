@@ -231,6 +231,7 @@ class SshConfigModifier:
 
 
 if __name__ == '__main__':
+    pass
     # m = SshConfigModifier()
     # print()
     # print(open(m.config_path, 'r').read())
