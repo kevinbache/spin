@@ -1,12 +1,11 @@
-from pathlib import Path
-
 import jinja2
 import logging
+from pathlib import Path
+import re
 import shlex
 from subprocess import Popen, PIPE
 import time
-from typing import Text, Dict, Any, Iterable
-
+from typing import Text, Dict, Any
 import yaml
 
 from spin import settings
@@ -18,6 +17,11 @@ def snake_2_camel(name, do_cap_first=False):
         return ''.join(w.capitalize() for w in words)
     else:
         return words[0] + ''.join(w.capitalize() for w in words[1:])
+
+
+def camel_2_snake(name):
+    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
 
 def format_dict(d: Dict, indent_width=4):
