@@ -1,10 +1,9 @@
-from spin.server2 import tryout_server
+from spin.server2 import my_actions
 
 
 if __name__ == '__main__':
-    s = tryout_server.get_server()
+    s = my_actions.get_server()
 
-    response = s.actions['action']()
+    response = s.actions['send_public_key']()
     print(response)
     print(response.text)
-

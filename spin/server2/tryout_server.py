@@ -1,8 +1,8 @@
-import dataclasses
-import enum
+import abc
+
 from flask import Flask, request, jsonify
 import requests
-from typing import Dict, Text, Union, List, Tuple, Iterable
+from typing import Dict, Text, Union, List, Tuple
 
 from spin import utils
 
@@ -15,12 +15,13 @@ class Action:
         self.server = FailServer()
         self.message = 'muy message'
 
-    # TODO: Handle passing arguments to this method
-    def make_client_to_server_dict(self) -> Dict:
-        return {'make_client_to_server_dict action message': self.message}
+    @abc.abstractmethod
+    def local(self) -> Dict:
+        pass
 
-    def make_server_to_client_dict(self, d: Dict) -> Dict:
-        return {'make_server_to_client_dict action message': self.message}
+    @abc.abstractmethod
+    def remote(self, d: Dict) -> Dict:
+        pass
 
     def get_name_on_server(self) -> Text:
         return utils.camel_2_snake(self.__class__.__name__)
@@ -29,7 +30,26 @@ class Action:
         self.server = server
 
     def __call__(self, *args, **kwargs):
-        return self.server.client_to_server(self)
+        return self.server.run_action(self)
+
+
+class SingleValueAction(Action):
+    """Special case of an action which is set to deal with only one value in a dict rather than the whole dict."""
+    FIELD_NAME = 'val'
+
+    def local(self) -> Dict:
+        return {self.FIELD_NAME: self.local_value()}
+
+    def remote(self, d: Dict) -> Dict:
+        return {self.FIELD_NAME: self.remote_value(d[self.FIELD_NAME])}
+
+    @abc.abstractmethod
+    def local_value(self) -> Text:
+        pass
+
+    @abc.abstractmethod
+    def remote_value(self, value: Text) -> Text:
+        pass
 
 
 class Server:
@@ -39,10 +59,7 @@ class Server:
         self.host = host
         self.port = port
 
-        # if isinstance(actions, enum.EnumMeta):
-        #     self.actions = actions
-        # elif dataclasses.is_dataclass(actions):
-        #     self.actions = actions
+        # check input actions for type
         if isinstance(actions, dict):
             for k in actions.keys():
                 if not isinstance(k, Text):
@@ -55,6 +72,13 @@ class Server:
         elif not isinstance(actions, (list, tuple)):
             raise ValueError(f"Expected a list or tuple of {Action.__class__.__name__}s.  Got {type(actions)}.")
 
+        # ensure unique routes
+        routes = [a.route for a in actions]
+        if not len(set(routes)) == len(routes):
+            raise ValueError(f"The routes on your actions must be unique but you passed in "
+                             f"actions with routes {routes}")
+
+        # set actions
         if len(actions) == 0:
             self.actions = {}
         else:
@@ -66,26 +90,35 @@ class Server:
 
             self.actions = {action.get_name_on_server(): action for action in actions}
 
+        # register actions
         for action in self.actions.values():
             self._register_action(action)
 
     def _register_action(self, action: Action):
         action.set_server(self)
 
-        @app.route(rule=f'/{action.route}', methods=['POST'])
+        leading_slash = '' if action.route.startswith('/') else '/'
+        rule = f'{leading_slash}{action.route}'
+
+        @app.route(rule=rule, methods=['POST'])
         def handle():
             print('handling it')
             request_data = request.get_json(force=True)
-            print(f"request_data = {request_data}")
-            return jsonify(action.make_server_to_client_dict(request_data))
+            return jsonify(action.remote(request_data))
 
-    def client_to_server(self, a: Action) -> requests.Response:
+    def run_action(self, a: Action) -> requests.Response:
         url = f'http://{self.host}:{self.port}/{a.route}'
-        response = requests.post(url=url, json=a.make_client_to_server_dict())
+        response = requests.post(url=url, json=a.local())
         return response
 
     def serve(self):
         app.run(host=self.host, port=self.port, debug=True)
+
+    @abc.abstractmethod
+    def _set_actions(self):
+        """Run in the init.  Set actions to self."""
+        pass
+
 
 
 class FailServer(Server):
@@ -93,14 +126,8 @@ class FailServer(Server):
     def __init__(self):
         super().__init__('', -1, [])
 
-    def client_to_server(self, a: Action) -> requests.Response:
+    def run_action(self, a: Action) -> requests.Response:
         raise NotImplementedError()
 
 
-def get_server() -> Server:
-    return Server(host='localhost', port=5000, actions=[Action()])
 
-
-if __name__ == '__main__':
-    s = get_server()
-    s.serve()

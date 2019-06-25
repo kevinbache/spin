@@ -9,7 +9,7 @@ from spin import utils
 
 def add_line_if_does_not_exist(filename: Text, line: Text):
     """Add the given line to the file unless it's already in the file."""
-    with open(filename, 'a') as f:
+    with open(filename, 'a+') as f:
         lines = f.readlines()
         if line in lines:
             return
