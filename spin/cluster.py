@@ -1,13 +1,12 @@
 import abc
 import json
-from pathlib import Path
+import time
 from typing import Iterable, Text
 
-from spin import settings, ssh
-from spin.utils import ShellRunnerMixin
+from spin import utils
 
 
-class NodePool(ShellRunnerMixin):
+class NodePool(utils.ShellRunnerMixin):
     def __init__(
             self,
             name='my-pool',
@@ -92,14 +91,40 @@ class NodePool(ShellRunnerMixin):
         '''
         return self._run(command)
 
-    def exists(self):
+    def list(self):
         command = f"""gcloud container node-pools list \
             --cluster={self.cluster.name} \
             --zone={self.cluster.zone} \
             --format="value(NAME)" """
-        exitcode, out, err = self._run(command)
-        pool_names = out.strip().split('\n')
-        return self.name in pool_names
+        _, out, _ = self._run(command)
+        return out.strip().split('\n')
+
+    def exists(self):
+        return self.name in self.list()
+
+
+class Node(NodePool):
+    def __init__(
+            self,
+            name='my-node',
+            machine_type='n1-standard-4',
+            accelerator='nvidia-tesla-k80',
+            accelerator_count_per_node=1,
+            allow_to_scale_to_zero=True,
+            preemptible=True,
+            verbose=True,
+    ):
+        super().__init__(
+            name=name,
+            machine_type=machine_type,
+            accelerator=accelerator,
+            accelerator_count_per_node=accelerator_count_per_node,
+            min_nodes=0 if allow_to_scale_to_zero else 1,
+            num_nodes=1,
+            max_nodes=1,
+            preemptible=preemptible,
+            verbose=verbose,
+        )
 
 
 class Cluster(abc.ABC):
@@ -116,17 +141,70 @@ class Cluster(abc.ABC):
         pass
 
 
-class GkeCluster(Cluster, ShellRunnerMixin):
+class GcloudHelper(utils.ShellRunnerMixin):
+    def get_project(self):
+        _, out, _ = self._run('gcloud config get-value project')
+        return out.strip()
+
+    def set_project(self, project_name: Text):
+        self._run(f'gcloud config set project {project_name}')
+
+
+class Namespace(utils.ShellRunnerMixin):
+    def __init__(self, name: Text, verbose=True):
+        super().__init__(verbose)
+        self.name = name
+
+    def create(self):
+        # https://stackoverflow.com/questions/52901435/how-i-create-new-namespace-in-kubernetes
+        self._run(f'kubectl create namespace {self.name}')
+
+    def delete(self):
+        self._run(f'kubectl delete namespace {self.name}')
+
+    def list(self):
+        _, out, _ = self._run(f'kubectl get namespace -o json')
+        out = json.loads(out)
+        return out['items']
+
+    def list_names(self):
+        namespaces = self.list()
+        return [namespace['metadata']['name'] for namespace in namespaces]
+
+    def exists(self):
+        return self.name in self.list_names()
+
+
+class GkeCluster(Cluster, utils.ShellRunnerMixin):
     def __init__(
             self,
+            project: Text,
             name='my-cluster',
             zone='us-central1-a',
             num_master_nodes=1,
             master_machine_type='n1-standard-4',
-            node_pools: Iterable[NodePool] = (),
+            members: Iterable[NodePool] = (),
             verbose=True,
+            do_error_if_project_different=True,
     ):
         super().__init__()
+
+        self.gcloud_helper = GcloudHelper()
+        current_project = self.gcloud_helper.get_project()
+        if current_project != project:
+            if do_error_if_project_different:
+                raise ValueError(f"Tried to create cluster with project {project} and "
+                                 f"do_error_if_project_different=True but current gcloud project is {current_project}\n"
+                                 f"You can change your gcloud project in python with "
+                                 f"  GcloudHelper.set_project({project}) \n"
+                                 f"or by running on the command line: \n"
+                                 f"  gcloud config set project {project}")
+            else:
+                if self.verbose:
+                    print(f"Changing project from {current_project} to {project}")
+                self.gcloud_helper.set_project(project)
+
+        self.project = project
 
         self.name = name
         self.zone = zone
@@ -134,7 +212,7 @@ class GkeCluster(Cluster, ShellRunnerMixin):
         self.master_machine_type = master_machine_type
 
         self.node_pools = {}
-        for node_pool in node_pools:
+        for node_pool in members:
             self._add_node_pool(node_pool)
 
         self.verbose = verbose
@@ -154,23 +232,25 @@ class GkeCluster(Cluster, ShellRunnerMixin):
         # https://cloud.google.com/compute/docs/machine-types
         # 3:07 for cluster startup
 
-        if self.exists():
-            if error_if_exists:
-                raise ValueError(f"A cluster named {self.name} already exists.")
-            else:
-                return 0, None, None
+        # if self.exists():
+        #     if error_if_exists:
+        #         raise ValueError(f"A cluster named {self.name} already exists.")
+        #     else:
+        #         # TODO: this is switching the global kubectl context to point to the current cluster.
+        #         return self._run(f'gcloud container clusters get-credentials {self.name}')
+        #
+        # command = f"""gcloud container clusters create {self.name} \
+        #     --zone={self.zone} \
+        #     --num-nodes={self.num_master_nodes} \
+        #     --machine-type={self.master_machine_type} \
+        #     --enable-autoupgrade
+        # """
+        # print("cluster.create command: {}".format(command))
+        # outs = [self._run(command)]
 
-        command = f"""gcloud container clusters create {self.name} \
-            --zone={self.zone} \
-            --num-nodes={self.num_master_nodes} \
-            --machine-type={self.master_machine_type} \
-            --enable-autoupgrade 
-        """
-        print("cluster.create command: {}".format(command))
-        outs = [self._run(command)]
-
+        outs = []
         if create_node_pools:
-            for node_pool in self.node_pools:
+            for node_pool in self.node_pools.values():
                 if self.verbose:
                     print(f"Creating node pool {node_pool} at {time.clock()}. ", end='')
                 outs.append(node_pool.create())
@@ -191,3 +271,12 @@ class GkeCluster(Cluster, ShellRunnerMixin):
         cluster_names = out.strip().split('\n')
         return self.name in cluster_names
 
+
+# if __name__ == '__main__':
+#     print(f'project: "{GcloudHelper().get_project()}"')
+#
+#     GcloudHelper().set_project('blah')
+#     print(f'project: "{GcloudHelper().get_project()}"')
+#
+#     GcloudHelper().set_project('kb-experiment')
+#     print(f'project: "{GcloudHelper().get_project()}"')

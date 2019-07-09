@@ -1,3 +1,4 @@
+# fill variables with python string formatting
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,8 +15,7 @@ spec:
     spec:
       containers:
       - name: devbox
-        # TODO: dynamic devbox location
-        image: gcr.io/kb-experiment/devbox:latest
+        image: gcr.io/{google_cloud_project}/devbox:latest
         ports:
         - containerPort: 80
 ---

@@ -11,7 +11,7 @@ SPIN_SETTINGS = spin_config.ProjectConfig(
         zone='us-central1-a',
         master_machine_type='n1-standard-4',
         num_master_nodes=1,
-        node_pools=(
+        members=(
             cluster.NodePool(
                 name='gpu-workers',
                 machine_type='n1-standard-4',

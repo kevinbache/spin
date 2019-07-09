@@ -14,4 +14,3 @@ def main_funk():
         Running in file:    {this_file}
         Inside function:    {function_name}
     """)
-

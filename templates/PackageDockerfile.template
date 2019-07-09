@@ -1,0 +1,20 @@
+# Install the nightly version of tensorflow
+FROM tensorflow/tensorflow:nightly-py3
+WORKDIR /app
+
+# Install curl
+RUN apt-get update; apt-get install curl -y
+
+# Installs pandas, google-cloud-storage, and scikit-learn
+# scikit-learn is used when loading the data
+RUN pip install pandas scikit-learn keras google-cloud-storage cloudml-hypertune
+
+# Copies the code for your package to the Docker image.  Assumes this is being run from the root of the package.
+COPY  . .
+
+# Installs your package on the Docker image
+RUN pip install --editable .
+
+# This is a script which is configured by {{cookiecutter.pkg_slug}}/setup.py >> setup >> entry_points
+# And placed on your path when you install your package.
+ENTRYPOINT["{}_docker_entry"]

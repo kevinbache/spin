@@ -11,13 +11,14 @@ TESTS_PATH = PROJECT_ROOT_PATH / 'test'
 PROJECT_CONFIG = ProjectConfig(
     name={{ cookiecutter.pkg_slug }},
     cluster=GkeCluster(
-        name='my-cluster',
+        project='spin-project',
+        name='spin-cluster',
         zone='us-central1-a',
         master_machine_type='n1-standard-4',
         num_master_nodes=1,
-        node_pools=(
+        members=(
             NodePool(
-                name='gpu-workers',
+                name='workers',
                 machine_type='n1-standard-4',
                 accelerator='nvidia-tesla-k80',
                 accelerator_count_per_node=1,
@@ -27,7 +28,7 @@ PROJECT_CONFIG = ProjectConfig(
                 preemptible=True,
             ),
             NodePool(
-                name='workers',
+                name='gpu-workers',
                 machine_type='n1-standard-4',
                 accelerator=None,
                 accelerator_count_per_node=0,

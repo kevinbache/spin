@@ -28,7 +28,6 @@ def root(ctx):
 @click.option('--github-username', help="Your Github Username", prompt="Your Github Username")
 def init(ctx, name, email, github_username):
     """Create .spinrc in your home directory."""
-
     rc = spin_config.SpinRc(
         spin_config.SpinRcUser(name, email, github_username),
         projects=[],

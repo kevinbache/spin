@@ -7,17 +7,6 @@ from typing import Text, Optional
 from spin import utils
 
 
-def add_line_if_does_not_exist(filename: Text, line: Text):
-    """Add the given line to the file unless it's already in the file."""
-    with open(filename, 'a+') as f:
-        lines = f.readlines()
-        if line in lines:
-            return
-        else:
-            f.writelines([line])
-    return
-
-
 class FileBlockModifier:
     def __init__(
             self,
@@ -66,7 +55,7 @@ class FileBlockModifier:
         return
 
 
-class SshKeyCreater(utils.ShellRunnerMixin):
+class SshKeyCreator(utils.ShellRunnerMixin):
     def __init__(
             self,
             private_key_filename='~/.ssh/id_rsa',
@@ -84,11 +73,11 @@ class SshKeyCreater(utils.ShellRunnerMixin):
         )
 
     @classmethod
-    def _get_pub_from_private(self, private_key_path: Path):
+    def get_pub_from_private(cls, private_key_path: Path):
         return Path(str(private_key_path) + '.pub')
 
     @classmethod
-    def _get_private_from_pub(self, public_key_path: Path):
+    def get_private_from_pub(cls, public_key_path: Path):
         if public_key_path.suffix != '.pub':
             raise ValueError(f"Expected public key filename to end in .pub.  Got: {str(public_key_path)}.")
         return Path(str(public_key_path[:-4]))
@@ -103,7 +92,7 @@ class SshKeyCreater(utils.ShellRunnerMixin):
         # generate with email: https://help.github.com/en/articles/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent
         # TODO: this is osx, do linux
 
-        public_key_path = self._get_pub_from_private(self.private_key_path)
+        public_key_path = self.get_pub_from_private(self.private_key_path)
         if self.private_key_path.exists():
             if do_error_if_exists:
                 raise IOError(f"File {str(self.private_key_path)} already exists.")
@@ -228,6 +217,8 @@ class SshConfigModifier:
             new_hosts_entry_str,
             do_replace_old_block=do_replace_existing_spin_hosts_entry
         )
+
+        return new_hosts_entry_str
 
 
 if __name__ == '__main__':

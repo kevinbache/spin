@@ -129,7 +129,7 @@ def test_new_identity():
         assert not Path(config_file).exists()
 
         comment = 'my.email@gmail.com'
-        k = ssh.SshKeyCreater(
+        k = ssh.SshKeyCreator(
             private_key_filename=private_file,
             comment=comment,
             ssh_config_file=config_file,
