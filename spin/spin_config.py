@@ -41,6 +41,12 @@ class SpinRcProject(DictBouncer):
         self.is_current = True
 
 
+class SpinRcSshKey(DictBouncer):
+    def __init__(self, private_key_file):
+        super().__init__()
+        self.private_key_file = private_key_file
+
+
 class SpinRcUser(DictBouncer):
     def __init__(self, name: Text, email: Text, github_username: Text):
         super().__init__()
@@ -58,10 +64,13 @@ class SpinRc(YamlBouncer):
             self,
             user: SpinRcUser,
             projects: List[SpinRcProject],
+            ssh_keys: List[SpinRcSshKey],
             current_project: Text=None,
     ):
+        # TODO: super().__init__()?
         self.user = user
         self.projects = projects
+        self.ssh_keys = ssh_keys
         self.current_project = current_project
 
     def add_project(self, project: SpinRcProject, set_current=False):

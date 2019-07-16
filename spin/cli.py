@@ -5,7 +5,7 @@ from pathlib import Path
 import click
 from cookiecutter.main import cookiecutter
 
-from spin import settings, spin_config, utils
+from spin import settings, spin_config, utils, ssh
 
 
 ############################################
@@ -26,9 +26,19 @@ def root(ctx):
 @click.option('--name', help="Your full name", prompt="Your full name (spaces fine, no quotes needed)")
 @click.option('--email', help="Your email", prompt="Your email")
 @click.option('--github-username', help="Your Github Username", prompt="Your Github Username")
+# @click.option(
+#     '--private-key',
+#     help="The path to a private ssh key on your local machine",
+#     prompt="The path to a private ssh key on your local machine",
+#     default='~/.ssh/id_rsa',
+# )
+# def init(ctx, name, email, github_username, private_key_filename):
 def init(ctx, name, email, github_username):
-    """Create .spinrc in your home directory."""
-    
+    """Create .spinrc in your home directory + create or claim a private key."""
+    # if not utils.file_exists(private_key_filename):
+    #     creator = ssh.SshKeyCreator(private_key_filename, comment=email)
+    #     creator.create(do_error_if_exists=True, do_add_ssh_config_entry=False)
+
     rc = spin_config.SpinRc(
         spin_config.SpinRcUser(name, email, github_username),
         projects=[],

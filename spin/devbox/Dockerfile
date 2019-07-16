@@ -47,12 +47,13 @@ RUN sed 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so
 ENV NOTVISIBLE "in users profile"
 RUN echo "export VISIBLE=now" >> /etc/profile
 
+# TODO: these should be generated on the fly on the local machine
 # ref: https://stackoverflow.com/questions/26286818/connecting-to-exposed-docker-container
 RUN rm -f /etc/ssh/ssh_host_*_key*
-RUN ssh-keygen -t dsa -N "" -f /etc/ssh/ssh_host_dsa_key
-RUN ssh-keygen -t rsa -N "" -f /etc/ssh/ssh_host_rsa_key
-RUN ssh-keygen -t ecdsa -N "" -f /etc/ssh/ssh_host_ecdsa_key
-RUN ssh-keygen -t ed25519 -N "" -f /etc/ssh/ssh_host_ed25519_key
+#RUN ssh-keygen -t dsa -N "" -f /etc/ssh/ssh_host_dsa_key
+#RUN ssh-keygen -t rsa -N "" -f /etc/ssh/ssh_host_rsa_key
+#RUN ssh-keygen -t ecdsa -N "" -f /etc/ssh/ssh_host_ecdsa_key
+#RUN ssh-keygen -t ed25519 -N "" -f /etc/ssh/ssh_host_ed25519_key
 
 RUN mkdir ~/.ssh/
 

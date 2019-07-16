@@ -113,7 +113,6 @@ class Devbox(utils.ShellRunnerMixin):
     def create(self):
         kube_apply.from_yaml(self._get_app_yaml(self.DEVBOX_YAML_FILE), namespace=self.namespace)
 
-        # TODO: GET POD NAME
         # exitcode, self.pod_name, _ = self._run("""kubectl get po -l run=devbox --output=name | sed "s/pod\///g" """)
         _, pod_name, _ = self._run("""kubectl get po -l run=devbox --output=name """)
         self.pod_name = pod_name.strip()[4:]
@@ -192,8 +191,17 @@ if __name__ == '__main__':
     # with utils.Timer("Cluster creation"):
     #     cluster.create()
 
-    db = Devbox(
-        cluster=cluster,
-    )
-    db.create()
+    # db = Devbox(
+    #     cluster=cluster,
+    # )
+    # db.create()
 
+    db = Devbox(
+    cluster = cluster.GkeCluster(
+        project='kb-experiment',
+        name='my-devbox',
+        zone='us-central1-a',
+        master_machine_type='n1-standard-4',
+        num_master_nodes=1,
+        members=(
+    )

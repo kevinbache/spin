@@ -63,6 +63,15 @@ class SshKeyCreator(utils.ShellRunnerMixin):
             ssh_config_file='~/.ssh/config',
             verbose=True,
     ):
+        """
+
+        Args:
+            private_key_filename:
+            comment: Text
+                Probably your email address.
+            ssh_config_file:
+            verbose:
+        """
         super().__init__(verbose)
         self.private_key_path = Path(private_key_filename).expanduser()
         self.comment = comment

@@ -5,7 +5,7 @@ import re
 import shlex
 from subprocess import Popen, PIPE
 import time
-from typing import Text, Dict, Any
+from typing import Text, Dict, Any, Union
 import yaml
 
 from spin import settings
@@ -152,6 +152,20 @@ def render_template(template_fullfile: Text, context_dict: Dict):
     return jinja2.Environment(
         loader=jinja2.FileSystemLoader(str(p.parent))
     ).get_template(str(p.name)).render(context_dict)
+
+
+def file_exists(filename_or_path: Union[Text, Path]):
+    if isinstance(filename_or_path, Text):
+        filename_or_path = Path(filename_or_path)
+    return filename_or_path.exists() and filename_or_path.is_file()
+
+
+def dir_exists(filename_or_path: Union[Text, Path]):
+    if isinstance(filename_or_path, Text):
+        filename_or_path = Path(filename_or_path)
+    return filename_or_path.exists() and filename_or_path.is_dir()
+
+
 
 
 if __name__ == '__main__':
