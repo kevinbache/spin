@@ -1,54 +1,13 @@
+import tempfile
 from pathlib import Path
-from typing import Text, List, Optional
+from typing import Text, List, Optional, Tuple, Dict
 
-from spin import utils, constants
-
-
-class SshKey(utils.DictBouncer):
-    PUB_SUFFIX = '.pub'
-
-    def __init__(self, private_key_file: Text):
-        super().__init__()
-        self.private_key_path = Path(private_key_file)
-        self.public_key_path = self.get_public_from_private(self.private_key_path)
-
-    @classmethod
-    def get_public_from_private(cls, private_key_path: Path):
-        return Path(str(private_key_path) + cls.PUB_SUFFIX)
-
-    @classmethod
-    def get_private_from_public(cls, public_key_path: Path):
-        if public_key_path.suffix != cls.PUB_SUFFIX:
-            raise ValueError(f"Expected public key filename to end in .pub.  Got: {str(public_key_path)}.")
-        return Path(str(public_key_path[:-4]))
-
-    def exists(self, check_private_only=False, check_public_only=False):
-        if check_private_only and check_public_only:
-            raise ValueError("You should only set one of private_only and public_only but you set both.")
-
-        out = True
-
-        if not check_private_only:
-            out &= self.public_key_path.exists()
-
-        if not check_public_only:
-            out &= self.private_key_path.exists()
-
-        return out
-
-    def read_public(self):
-        if not self.exists(check_public_only=True):
-            raise ValueError(f"Key at {str(self.public_key_path)} doesn't exist.")
-        return open(str(self.public_key_path), 'r').read()
-
-    def read_private(self):
-        if not self.exists(check_private_only=True):
-            raise ValueError(f"Key at {str(self.private_key_path)} doesn't exist.")
-        return open(str(self.private_key_path), 'r').read()
+from spin import utils, constants, kubes, ssh
+from spin.ssh import SshKeyOnDisk
 
 
 class GithubRepo(utils.DictBouncer):
-    def __init__(self, repo_url: Text, ssh_key: Optional[SshKey] = None):
+    def __init__(self, repo_url: Text, ssh_key: Optional[SshKeyOnDisk] = None):
         """
         Represents a github repo.
 
@@ -94,18 +53,33 @@ class GCloudNodeConfig(NodeConfig):
 
 
 class Workbench(utils.ShellRunnerMixin):
-    SERVER_KEY_DIRECTORY = '/secrets/ssh_server_keys'
-    USER_KEY_DIRECTORY = '/secrets/user_keys'
-    USER_LOGIN_PUBLIC_KEYS_DIRECTORY = '/secrets/user_login_public_keys'
+    class SecretType:
+        """Simple holder to organize secret type info
+        secret_type_str: 'ssh_server_keys'
+        secret_name:     'my-workbench-ssh_server_keys'
+        secret_dir:      '/secrets/ssh_server_keys/'s
+        """
+        def __init__(self, secret_type_str: Text):
+            self.secret_type_str = secret_type_str
+
+        def get_secret_name(self, workbench_name: Text):
+            return f'{workbench_name}-{self.secret_type_str}'
+
+        def get_secret_mountpoint(self):
+            return f'/secrets/{self.secret_type_str}'
+
+    SERVER_KEY_SECRET_TYPE = SecretType('ssh-server-keys')
+    USER_KEY_SECRET_TYPE = SecretType('user-keys')
+    USER_LOGIN_PUBLIC_KEYS_SECRET_TYPE = SecretType('user-login-public-keys')
 
     def __init__(
             self,
             cloud_config: CloudConfig,
             master_node_config: NodeConfig,
-            repos=List[GithubRepo],
+            repos: List[GithubRepo],
+            ssh_login_key: SshKeyOnDisk,
             name='spin-workbench',
             kubernetes_namespace=constants.DEFAULT_KUBERNETES_NAMESPACE,
-            ssh_login_key=SshKey,
             verbose=True,
     ):
         """
@@ -129,14 +103,77 @@ class Workbench(utils.ShellRunnerMixin):
 
         self.ssh_login_key = ssh_login_key
 
+    def _create_ssh_server_keys_as_secret(
+            self,
+            key_types=('dsa', 'rsa', 'ecdsa', 'ed25519'),
+    ) -> Tuple[kubes.KubernetesSecret, Dict[Text, ssh.SshKeyInMemory]]:
+        """Create a Kubernetes secret containing newly generated SSH keys of the given type.
+        Used as SSH server keys on the workbench.
 
+        Args:
+            key_types: the ssh key types to create and add to the secret.
 
-    def add_key_as_secret(self, secret_directory_name: Text, key: SshKey):
-        cmd = f'kubectl create secret generic {secret_directory_name} ' \
-            f'--from-file={str(key.public_key_path)} --from-file={str(key.private_key_path)}'
-        self._run(cmd)
-        # kubectl create secret generic db-user-pass --from-file=./username.txt --from-file=./password.txt
+        Returns:
+            Reference to a kubernetes secret which has already been created and which contains
+            the requested private and public keys as members.
+        """
 
+        utils.ensure_cmdline_program_exists('ssh-keygen')
+
+        key_type_to_in_memory_key = {}
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            ssh_keys = []
+            for key_type in key_types:
+                private_key_location = f'{tempdir}/{key_type}'
+                cmd = f'ssh-keygen -t {key_type} -N "" -f {private_key_location}'
+                self._run(cmd)
+                ssh_key = ssh.SshKeyOnDisk(private_key_location)
+                if not ssh_key.exists():
+                    raise IOError(f"Error creating key at location {private_key_location}")
+                ssh_keys.append(ssh_key)
+                key_type_to_in_memory_key[key_type] = ssh.SshKeyInMemory(ssh_key)
+            # self._add_keys_as_secret(self.SERVER_KEY_SECRET_TYPE.get_secret_name(self.name), ssh_keys)
+            secret = kubes.KubernetesSecret.from_ssh_keys(
+                secret_name=self.SERVER_KEY_SECRET_TYPE.get_secret_name(self.name),
+                ssh_keys=ssh_keys,
+            )
+            # delete old secret if it already eixsts and create a new one
+            secret.delete()
+            secret.create()
+
+        return secret, key_type_to_in_memory_key
+
+    def create(self):
+        # create SSH server keys as kubernetes secret.  these allow the workbench to run an SSH server
+        server_keys_secret, ssh_key_type_to_in_memory_key = self._create_ssh_server_keys_as_secret()
+        print(server_keys_secret.exists())
+
+        # create SSH user keys as kubernetes secret.  these allow the workbench to pull private repos
+        user_keys = []
+        for repo in self.repos:
+            if repo.ssh_key is not None:
+                user_keys.append(repo.ssh_key)
+        user_keys_secret = kubes.KubernetesSecret.from_ssh_keys(
+            secret_name=self.USER_KEY_SECRET_TYPE.get_secret_name(self.name),
+            ssh_keys=user_keys,
+        )
+        user_keys_secret.delete()
+        user_keys_secret.create()
+
+        # create login key as kubernetes secret.  this allows the user to ssh in to the workbench
+        login_keys_secret = kubes.KubernetesSecret.from_ssh_keys(
+            secret_name=self.USER_LOGIN_PUBLIC_KEYS_SECRET_TYPE.get_secret_name(self.name),
+            ssh_keys=[self.ssh_login_key],
+        )
+        login_keys_secret.delete()
+        login_keys_secret.create()
+
+        print(login_keys_secret.list_names())
+
+        ssh.FileBlockModifiers
+
+        pass
 
         """
         on launch:
@@ -168,4 +205,14 @@ class Workbench(utils.ShellRunnerMixin):
               - key: username
                 path: my-group/my-username
         """
+
+
+if __name__ == '__main__':
+    ssh_key = SshKeyOnDisk('~/.ssh/id_rsa')
+    wb = Workbench(
+        cloud_config=None,
+        master_node_config=None,
+        repos=[GithubRepo(repo_url='git@github.com:kevinbache/spin.git', ssh_key=ssh_key)],
+        ssh_login_key=ssh_key)
+    wb.create()
 

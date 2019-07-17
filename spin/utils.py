@@ -1,3 +1,5 @@
+import shutil
+
 import jinja2
 import logging
 from pathlib import Path
@@ -46,8 +48,16 @@ def get_exitcode_stdout_stderr(cmd):
     return exitcode, out.decode('utf-8'), err.decode('utf-8')
 
 
+def ensure_cmdline_program_exists(program_name: Text):
+    out = shutil.which(program_name)
+    if out is None:
+        raise IOError(f"The command line utility, {program_name}, does not exist on your system.")
+
+
 class ShellRunnerMixin:
     """Can run commands from the command line."""
+    EMPTY_RUN_RETURN_VALUE = (0, '', '')
+
     def __init__(self, verbose=True):
         self.verbose = verbose
 
@@ -166,6 +176,8 @@ def dir_exists(filename_or_path: Union[Text, Path]):
     return filename_or_path.exists() and filename_or_path.is_dir()
 
 
+def resolve_path(path: Union[Text, Path]) -> Path:
+    return Path(path).expanduser().resolve()
 
 
 if __name__ == '__main__':

@@ -150,31 +150,6 @@ class GcloudHelper(utils.ShellRunnerMixin):
         self._run(f'gcloud config set project {project_name}')
 
 
-class Namespace(utils.ShellRunnerMixin):
-    def __init__(self, name: Text, verbose=True):
-        super().__init__(verbose)
-        self.name = name
-
-    def create(self):
-        # https://stackoverflow.com/questions/52901435/how-i-create-new-namespace-in-kubernetes
-        self._run(f'kubectl create namespace {self.name}')
-
-    def delete(self):
-        self._run(f'kubectl delete namespace {self.name}')
-
-    def list(self):
-        _, out, _ = self._run(f'kubectl get namespace -o json')
-        out = json.loads(out)
-        return out['items']
-
-    def list_names(self):
-        namespaces = self.list()
-        return [namespace['metadata']['name'] for namespace in namespaces]
-
-    def exists(self):
-        return self.name in self.list_names()
-
-
 class GkeCluster(Cluster, utils.ShellRunnerMixin):
     def __init__(
             self,

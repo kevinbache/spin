@@ -2,9 +2,32 @@
 import os
 import re
 from pathlib import Path
-from typing import Text, Optional
+from typing import Text, Optional, Union
 
 from spin import utils
+
+
+def add_line_if_does_not_exist(filename: Union[Text, Path], line: Text):
+    """Add the given line to the file unless it's already in the file."""
+    if isinstance(filename, Path):
+        filename = str(filename)
+
+    with open(filename, 'a+') as f:
+        lines = f.readlines()
+        if line in lines:
+            return
+        else:
+            f.writelines([line])
+    return
+
+
+class KnownHostsModifier:
+    def __init__(self, known_hosts_file='~/.ssh/known_hosts'):
+        self.known_hosts_file = utils.resolve_path(known_hosts_file)
+
+    def add_known_host(self, line: Text):
+        add_line_if_does_not_exist(self.known_hosts_file, line)
+
 
 
 class FileBlockModifier:
@@ -230,20 +253,56 @@ class SshConfigModifier:
         return new_hosts_entry_str
 
 
-if __name__ == '__main__':
-    pass
-    # m = SshConfigModifier()
-    # print()
-    # print(open(m.config_path, 'r').read())
-    # m.add_host_entry(
-    #     host_tag='host_tag',
-    #     host_name='localhost',
-    #     user='kevin',
-    #     identity_file='~/.ssh/id_rsa',
-    #     forward_agent=True,
-    #     add_keys_to_agent=None,
-    #     do_replace_existing_spin_hosts_entry=True,
-    # )
-    # print()
-    # print(open(m.config_path, 'r').read())
+class SshKeyOnDisk(utils.DictBouncer):
+    PUB_SUFFIX = '.pub'
 
+    def __init__(self, private_key_file: Text):
+        super().__init__()
+        self.private_key_path = Path(private_key_file).expanduser().resolve()
+        self.public_key_path = self.get_public_from_private(self.private_key_path)
+
+    @classmethod
+    def get_public_from_private(cls, private_key_path: Path):
+        return Path(str(private_key_path) + cls.PUB_SUFFIX)
+
+    @classmethod
+    def get_private_from_public(cls, public_key_path: Path):
+        if public_key_path.suffix != cls.PUB_SUFFIX:
+            raise ValueError(f"Expected public key filename to end in .pub.  Got: {str(public_key_path)}.")
+        return Path(str(public_key_path[:-4]))
+
+    def exists(self, check_private_only=False, check_public_only=False):
+        if check_private_only and check_public_only:
+            raise ValueError("You should only set one of private_only and public_only but you set both.")
+
+        out = True
+
+        if not check_private_only:
+            out &= self.public_key_path.exists()
+
+        if not check_public_only:
+            out &= self.private_key_path.exists()
+
+        return out
+
+    def read_public(self):
+        if not self.exists(check_public_only=True):
+            raise ValueError(f"Key at {str(self.public_key_path)} doesn't exist.")
+        return open(str(self.public_key_path), 'r').read()
+
+    def read_private(self):
+        if not self.exists(check_private_only=True):
+            raise ValueError(f"Key at {str(self.private_key_path)} doesn't exist.")
+        return open(str(self.private_key_path), 'r').read()
+
+
+class SshKeyInMemory:
+    def __init__(self, ssh_key_on_disk: SshKeyOnDisk):
+        self._private_key_contents = ssh_key_on_disk.read_private()
+        self._public_key_contents = ssh_key_on_disk.read_public()
+
+    def read_public(self):
+        return self._public_key_contents
+
+    def read_private(self):
+        return self._private_key_contents
