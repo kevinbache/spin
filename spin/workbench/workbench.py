@@ -38,7 +38,7 @@ class NodeConfig(utils.DictBouncer):
 
 
 class GCloudNodeConfig(NodeConfig):
-    """Just a NodeConfig with sensible defaults for Google Cloud."""
+    """A NodeConfig with sensible defaults for Google Cloud."""
     def __init__(
             self,
             machine_type='n1-standard-4',
@@ -52,12 +52,16 @@ class GCloudNodeConfig(NodeConfig):
         )
 
 
+_DEFAULT_MASTER_NODE_CONFIG = GCloudNodeConfig()
+
+
 class Workbench(utils.ShellRunnerMixin):
     class SecretType:
         """Simple holder to organize secret type info
-        secret_type_str: 'ssh_server_keys'
-        secret_name:     'my-workbench-ssh_server_keys'
-        secret_dir:      '/secrets/ssh_server_keys/'s
+
+        secret_type_str:    'ssh-server-keys'
+        secret_name:        'my-workbench-ssh-server-keys'
+        secret_mountpoint:  '/secrets/ssh-server-keys/'
         """
         def __init__(self, secret_type_str: Text):
             self.secret_type_str = secret_type_str
@@ -72,13 +76,15 @@ class Workbench(utils.ShellRunnerMixin):
     USER_KEY_SECRET_TYPE = SecretType('user-keys')
     USER_LOGIN_PUBLIC_KEYS_SECRET_TYPE = SecretType('user-login-public-keys')
 
+    CONTAINER_IMAGE_URI = 'gcr.io/kb-experiment/devbox:latest'
+
     def __init__(
             self,
             cloud_config: CloudConfig,
-            master_node_config: NodeConfig,
             repos: List[GithubRepo],
             ssh_login_key: SshKeyOnDisk,
             name='spin-workbench',
+            master_node_config: NodeConfig = _DEFAULT_MASTER_NODE_CONFIG,
             kubernetes_namespace=constants.DEFAULT_KUBERNETES_NAMESPACE,
             verbose=True,
     ):
@@ -87,12 +93,12 @@ class Workbench(utils.ShellRunnerMixin):
 
         Args:
             cloud_config: config for the cloud where you'll launch this workbench
-            master_node_config: the configuration for your workbench's master node
             repos: a list of repos to pull into your Workbench
             name: the name of this workbench
+            master_node_config: the configuration for your workbench's master node
             kubernetes_namespace: the namespace in which to launch this workbench
             ssh_login_key: the ssh key on your computer which you'll use to login to this workbench
-            # verbose: if True, print out status messages as you go
+            verbose: if True, print out status messages as you go
         """
         super().__init__(verbose)
         self.cloud_config = cloud_config
@@ -102,6 +108,10 @@ class Workbench(utils.ShellRunnerMixin):
         self.kubernetes_namespace = kubernetes_namespace
 
         self.ssh_login_key = ssh_login_key
+        
+        self._secrets = []
+        self._service = None
+        self._deployment = None
 
     def _create_ssh_server_keys_as_secret(
             self,
@@ -136,6 +146,7 @@ class Workbench(utils.ShellRunnerMixin):
             # self._add_keys_as_secret(self.SERVER_KEY_SECRET_TYPE.get_secret_name(self.name), ssh_keys)
             secret = kubes.KubernetesSecret.from_ssh_keys(
                 secret_name=self.SERVER_KEY_SECRET_TYPE.get_secret_name(self.name),
+                mount_point_on_pod=self.SERVER_KEY_SECRET_TYPE.get_secret_mountpoint(),
                 ssh_keys=ssh_keys,
             )
             # delete old secret if it already eixsts and create a new one
@@ -147,7 +158,7 @@ class Workbench(utils.ShellRunnerMixin):
     def create(self):
         # create SSH server keys as kubernetes secret.  these allow the workbench to run an SSH server
         server_keys_secret, ssh_key_type_to_in_memory_key = self._create_ssh_server_keys_as_secret()
-        print(server_keys_secret.exists())
+        self._secrets.append(server_keys_secret)
 
         # create SSH user keys as kubernetes secret.  these allow the workbench to pull private repos
         user_keys = []
@@ -156,32 +167,48 @@ class Workbench(utils.ShellRunnerMixin):
                 user_keys.append(repo.ssh_key)
         user_keys_secret = kubes.KubernetesSecret.from_ssh_keys(
             secret_name=self.USER_KEY_SECRET_TYPE.get_secret_name(self.name),
+            mount_point_on_pod=self.USER_KEY_SECRET_TYPE.get_secret_mountpoint(),
             ssh_keys=user_keys,
         )
         user_keys_secret.delete()
         user_keys_secret.create()
+        self._secrets.append(user_keys_secret)
 
         # create login key as kubernetes secret.  this allows the user to ssh in to the workbench
         login_keys_secret = kubes.KubernetesSecret.from_ssh_keys(
             secret_name=self.USER_LOGIN_PUBLIC_KEYS_SECRET_TYPE.get_secret_name(self.name),
+            mount_point_on_pod=self.USER_LOGIN_PUBLIC_KEYS_SECRET_TYPE.get_secret_mountpoint(),
             ssh_keys=[self.ssh_login_key],
         )
         login_keys_secret.delete()
         login_keys_secret.create()
+        self._secrets.append(login_keys_secret)
 
-        print(login_keys_secret.list_names())
+        # launch the app to kubernetes
+        service, deployment = kubes.get_service_and_deployment(
+            deployment_name=self.name,
+            container_image_uri=self.CONTAINER_IMAGE_URI,
+            service_name=self.name,
+            ports=[
+                kubes.KubernetesPort(name='ssh', external_port=22, pod_port=22),
+                kubes.KubernetesPort(name='http', external_port=80, pod_port=80),
+            ],
+            num_deployment_replicas=1,
+        )
 
-        ssh.FileBlockModifiers
+        service.create()
+        deployment.create()
 
-        pass
+
+        print(f'secret names: {login_keys_secret.list_names()}')
 
         """
         on launch:
-            generate server keys
-            set login key
-            add server keys to known_hosts.
+             generate server keys
+             set login key
             kube launch deployment
             kube launch service
+            add server keys to known_hosts.
         """
 
         """
@@ -210,9 +237,10 @@ class Workbench(utils.ShellRunnerMixin):
 if __name__ == '__main__':
     ssh_key = SshKeyOnDisk('~/.ssh/id_rsa')
     wb = Workbench(
-        cloud_config=None,
-        master_node_config=None,
+        cloud_config=CloudConfig(cloud_project='kb-experirment', zone='us-central1-a'),
         repos=[GithubRepo(repo_url='git@github.com:kevinbache/spin.git', ssh_key=ssh_key)],
-        ssh_login_key=ssh_key)
+        ssh_login_key=ssh_key,
+        name='spin-workbench',
+    )
     wb.create()
 

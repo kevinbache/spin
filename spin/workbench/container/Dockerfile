@@ -12,13 +12,13 @@ COPY . .
 RUN mkdir /helpers
 COPY copy_ssh_keys.py /helpers
 
-# TODO: remove me
-RUN mkdir -p /secret/ssh
-COPY ./ssh_keys/ /secret/ssh/
-#RUN ls -la /secret/ssh/
-#RUN ls -la /secret/ssh/ssh_server_keys
-#RUN ls -la /secret/ssh/user_keys
-#RUN ls -la /secret/ssh/user_login_public_keys
+## TODO: remove me
+#RUN mkdir -p /secret/ssh
+#COPY ./ssh_keys/ /secret/ssh/
+##RUN ls -la /secret/ssh/
+##RUN ls -la /secret/ssh/ssh_server_keys
+##RUN ls -la /secret/ssh/user_keys
+##RUN ls -la /secret/ssh/user_login_public_keys
 ############################
 
 ###### BEGIN GCLOUD ######
@@ -47,7 +47,8 @@ RUN pip install Flask gunicorn
 RUN apt-get update && apt-get install -y openssh-server
 RUN mkdir /var/run/sshd
 RUN echo 'root:MadeUpPassword' | chpasswd
-RUN sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+#RUN sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+RUN sed -i 's/#PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
 
 ## this assumes that we're mounting the public key file at /etc/ssh-keys/
 ##  kubectl create secret generic ssh-key-secret --from-file=ssh-privatekey=${HOME}/.ssh/id_rsa --from-file=ssh-publickey=${HOME}/.ssh/id_rsa.pub
@@ -78,6 +79,8 @@ EXPOSE 22
 RUN ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts
 RUN ssh-keyscan -t rsa gitlab.com >> ~/.ssh/known_hosts
 RUN ssh-keyscan -t rsa bitbucket.com >> ~/.ssh/known_hosts
+
+# https://medium.com/@SaravSun/admatic-tech-blog-starting-multiple-services-inside-a-container-with-supervisord-16e3beb55916
 
 # Run the web service on container startup. Here we use the gunicorn
 # webserver, with one worker process and 8 threads.

@@ -35,13 +35,13 @@ def format_dict(d: Dict, indent_width=4):
     return s
 
 
-def get_exitcode_stdout_stderr(cmd):
+def get_exitcode_stdout_stderr(cmd, shell=False):
     """
     Execute the external command and get its exitcode, stdout and stderr.
     """
     args = shlex.split(cmd)
 
-    proc = Popen(args, stdout=PIPE, stderr=PIPE)
+    proc = Popen(args, stdout=PIPE, stderr=PIPE, shell=shell)
     out, err = proc.communicate()
     exitcode = proc.returncode
 
@@ -61,11 +61,11 @@ class ShellRunnerMixin:
     def __init__(self, verbose=True):
         self.verbose = verbose
 
-    def _run(self, command: Text, error_on_nonzero_exit=True):
+    def _run(self, command: Text, error_on_nonzero_exit=True, shell=False):
         if self.verbose:
             logging.info(f'Running shell command: {command}')
 
-        exitcode, stdout, stderr = get_exitcode_stdout_stderr(command)
+        exitcode, stdout, stderr = get_exitcode_stdout_stderr(command, shell)
 
         if error_on_nonzero_exit and exitcode:
             raise ValueError(f"Got nonzero exit code {exitcode} from command `{command}`.  "

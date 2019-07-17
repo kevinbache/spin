@@ -29,7 +29,6 @@ class KnownHostsModifier:
         add_line_if_does_not_exist(self.known_hosts_file, line)
 
 
-
 class FileBlockModifier:
     def __init__(
             self,
@@ -76,6 +75,91 @@ class FileBlockModifier:
         open(filename, 'w').write(out)
 
         return
+
+
+class SshConfigModifier:
+    def __init__(
+            self,
+            config_filename=os.path.expanduser('~/.ssh/config'),
+            error_if_config_does_not_exist=False,
+            verbose=True
+    ):
+        self.config_path = Path(config_filename)
+        self.error_if_config_does_not_exist = error_if_config_does_not_exist
+
+        if not self.config_path.exists() and self.error_if_config_does_not_exist:
+            raise IOError(f'SSH config file, {str(self.config_path)} does not exist.')
+
+        self.verbose = verbose
+
+        self.file_modifier = FileBlockModifier()
+
+    # https://unix.stackexchange.com/questions/69314/automated-ssh-keygen-without-passphrase-how
+    '''ssh-keygen -b 2048 -t rsa -f /tmp/sshkey -q -N ""'''
+    # correct permissions: https://gist.github.com/grenade/6318301
+    # generate with email: https://help.github.com/en/articles/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent
+
+    @classmethod
+    def _add_to_hosts_dict(cls, d, key, value):
+        if value is None:
+            return
+
+        if value == True:
+            value = 'yes'
+        elif value == False:
+            value = 'no'
+
+        d[utils.snake_2_camel(key, do_cap_first=True)] = value
+
+    def add_host_entry(
+            self,
+            host_tag: Text,
+            host_name: Optional[Text] = None,
+            user: Optional[Text] = None,
+            port: Optional[int] = 22,
+            identity_file: Optional[Text] = None,  # e.g.: identity_file='~/.ssh/id_rsa'
+            add_keys_to_agent: Optional[bool] = True,
+            forward_agent: Optional[bool] = True,
+            do_replace_existing_spin_hosts_entry=True,
+    ):
+        """Add a host entry to the ssh config file.
+        In general, if you set a option to None its corresponding line will not be included in the final config file."""
+
+        if not self.config_path.exists():
+            if self.error_if_config_does_not_exist:
+                raise IOError(f'SSH config file, {str(self.config_path)} does not exist.')
+            else:
+                self.config_path.touch(mode=0o644)
+
+        keys = (
+            'host_name',
+            'user',
+            'port',
+            'identity_file',
+            'add_keys_to_agent',
+            'forward_agent',
+        )
+
+        l = locals()
+        hosts_dict = {}
+        for key in keys:
+            self._add_to_hosts_dict(hosts_dict, key, l[key])
+
+        new_hosts_entry_str = f'Host {host_tag}\n'
+        new_hosts_entry_str += utils.format_dict(hosts_dict)
+
+        if self.verbose:
+            import logging
+            logging.info(f'Adding new block of code to file {self.config_path}')
+            logging.info(f'{new_hosts_entry_str}')
+
+        self.file_modifier.modify(
+            str(self.config_path),
+            new_hosts_entry_str,
+            do_replace_old_block=do_replace_existing_spin_hosts_entry
+        )
+
+        return new_hosts_entry_str
 
 
 class SshKeyCreator(utils.ShellRunnerMixin):
@@ -166,91 +250,6 @@ class SshKeyCreator(utils.ShellRunnerMixin):
                 forward_agent=True,
                 do_replace_existing_spin_hosts_entry=False,
             )
-
-
-class SshConfigModifier:
-    def __init__(
-            self,
-            config_filename=os.path.expanduser('~/.ssh/config'),
-            error_if_config_does_not_exist=False,
-            verbose=True
-    ):
-        self.config_path = Path(config_filename)
-        self.error_if_config_does_not_exist = error_if_config_does_not_exist
-
-        if not self.config_path.exists() and self.error_if_config_does_not_exist:
-            raise IOError(f'SSH config file, {str(self.config_path)} does not exist.')
-
-        self.verbose = verbose
-
-        self.file_modifier = FileBlockModifier()
-
-    # https://unix.stackexchange.com/questions/69314/automated-ssh-keygen-without-passphrase-how
-    '''ssh-keygen -b 2048 -t rsa -f /tmp/sshkey -q -N ""'''
-    # correct permissions: https://gist.github.com/grenade/6318301
-    # generate with email: https://help.github.com/en/articles/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent
-
-    @classmethod
-    def _add_to_hosts_dict(cls, d, key, value):
-        if value is None:
-            return
-
-        if value == True:
-            value = 'yes'
-        elif value == False:
-            value = 'no'
-
-        d[utils.snake_2_camel(key, do_cap_first=True)] = value
-
-    def add_host_entry(
-            self,
-            host_tag: Text,
-            host_name: Optional[Text] = None,
-            user: Optional[Text] = None,
-            port: Optional[int] = 22,
-            identity_file: Optional[Text] = None,  # e.g.: identity_file='~/.ssh/id_rsa'
-            add_keys_to_agent: Optional[bool] = True,
-            forward_agent: Optional[bool] = True,
-            do_replace_existing_spin_hosts_entry=True,
-    ):
-        """Add a host entry to the ssh config file.
-        In general, if you set a option to None its corresponding line will not be included in the final config file."""
-
-        if not self.config_path.exists():
-            if self.error_if_config_does_not_exist:
-                raise IOError(f'SSH config file, {str(self.config_path)} does not exist.')
-            else:
-                self.config_path.touch(mode=0o644)
-
-        keys = (
-            'host_name',
-            'user',
-            'port',
-            'identity_file',
-            'add_keys_to_agent',
-            'forward_agent',
-        )
-
-        l = locals()
-        hosts_dict = {}
-        for key in keys:
-            self._add_to_hosts_dict(hosts_dict, key, l[key])
-
-        new_hosts_entry_str = f'Host {host_tag}\n'
-        new_hosts_entry_str += utils.format_dict(hosts_dict)
-
-        if self.verbose:
-            import logging
-            logging.info(f'Adding new block of code to file {self.config_path}')
-            logging.info(f'{new_hosts_entry_str}')
-
-        self.file_modifier.modify(
-            str(self.config_path),
-            new_hosts_entry_str,
-            do_replace_old_block=do_replace_existing_spin_hosts_entry
-        )
-
-        return new_hosts_entry_str
 
 
 class SshKeyOnDisk(utils.DictBouncer):
