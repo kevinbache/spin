@@ -263,7 +263,13 @@ class SshKey(utils.DictBouncer, abc.ABC):
         pass
 
     def get_known_hosts_line(self, ip: Text, port: int):
-        return f'[{ip}]:{port} {self.read_public()}'
+        # cut out the hostname or email address comment
+        key = ' '.join(self.read_public().split(' ')[:2])
+
+        if port == 22:
+            return f'{ip} {key}'
+        else:
+            return f'[{ip}]:{port} {key}'
 
 
 class SshKeyOnDisk(SshKey):

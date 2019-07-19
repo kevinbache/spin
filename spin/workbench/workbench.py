@@ -138,7 +138,7 @@ class Workbench(utils.ShellRunnerMixin):
             ssh_keys = []
             for key_type in key_types:
                 private_key_location = f'{tempdir}/ssh_host_{key_type}_key'
-                cmd = f'ssh-keygen -t {key_type} -N "" -f {private_key_location}'
+                cmd = f'ssh-keygen -t {key_type} -N "" -f {private_key_location} -C ""'
                 self._run(cmd)
                 ssh_key = ssh.SshKeyOnDisk(private_key_location)
                 if not ssh_key.exists():
@@ -210,18 +210,34 @@ class Workbench(utils.ShellRunnerMixin):
         #   we could run a service which would map workbench ip to that statically assigned name.
         ip, ports_dict = self._service.get_ip_and_ports()
 
+        ssh_port_num = ports_dict['ssh']
+
         known_hosts_modifier = ssh.KnownHostsModifier()
         if self.verbose:
             print(f"Adding workbench's line to {known_hosts_modifier.known_hosts_file}")
-        known_hosts_line = ssh_key_type_to_in_memory_key['rsa'].get_known_hosts_line(ip, ports_dict['ssh'])
-        known_hosts_modifier.add_known_host(known_hosts_line)
+
+        for ssh_key in ssh_key_type_to_in_memory_key.values():
+            known_hosts_line = ssh_key.get_known_hosts_line(ip, ssh_port_num)
+            known_hosts_modifier.add_known_host(known_hosts_line)
+
+        config_modifier = ssh.SshConfigModifier()
+        config_modifier.add_host_entry(
+            host_tag=self.name,
+            host_name=ip,
+            user='root',
+            port=ssh_port_num,
+            identity_file=self.ssh_login_key.private_key_path,
+            forward_agent=True,
+            do_replace_existing_spin_hosts_entry=False,
+        )
 
         if self.verbose:
             ports_str = '\n        '.join([f'{k}: {v}' for k, v in ports_dict.items()])
 
-            port = ports_dict['ssh']
-            port_str = '' if port == 22 else '-p {port}'
-            ssh_str = f"ssh root@{ip} {port_str}"
+            # port = ports_dict['ssh']
+            # port_str = '' if port == 22 else '-p {port}'
+            # ssh_str = f"ssh root@{ip} {port_str}"
+            ssh_str = f'ssh {self.name}'
 
             print(f"""
     Your workbench, {self.name}, has been created using container at {self.container_image_uri}  
@@ -239,7 +255,7 @@ if __name__ == '__main__':
         cloud_config=CloudConfig(cloud_project='kb-experirment', zone='us-central1-a'),
         repos=[GithubRepo(repo_url='git@github.com:kevinbache/spin.git', ssh_key=ssh_key)],
         ssh_login_key=ssh_key,
-        name='spin-workbench6',
+        name='spin-workbench8',
     )
     wb.create()
 
