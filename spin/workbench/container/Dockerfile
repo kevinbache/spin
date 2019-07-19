@@ -1,25 +1,8 @@
 FROM tensorflow/tensorflow:nightly-py3
 
-RUN apt-get update && apt-get install -y curl vim
-
-# TODO: change user from root
-
-## Copy local code to the container image.
-WORKDIR /app
-COPY . .
-
-############################
-RUN mkdir /helpers
-COPY copy_ssh_keys.py /helpers
-
-## TODO: remove me
-#RUN mkdir -p /secret/ssh
-#COPY ./ssh_keys/ /secret/ssh/
-##RUN ls -la /secret/ssh/
-##RUN ls -la /secret/ssh/ssh_server_keys
-##RUN ls -la /secret/ssh/user_keys
-##RUN ls -la /secret/ssh/user_login_public_keys
-############################
+###### BEGIN BASICS ######
+RUN apt-get update && apt-get install -y curl vim git
+####### END BASICS #######
 
 ###### BEGIN GCLOUD ######
 # ref: https://cloud.google.com/sdk/docs/quickstart-debian-ubuntu
@@ -35,24 +18,13 @@ RUN chmod +x ./kubectl
 RUN mv ./kubectl /usr/local/bin
 ####### END KUBECTL #######
 
-RUN pip install pandas scikit-learn keras google-cloud-storage cloudml-hypertune
-RUN pip install Flask gunicorn
-
-#RUN useradd -ms /bin/bash serveuser
-#USER serveuser
-
 ################# BEGIN SSH STUFF #################
 # ref: https://leadwithoutatitle.wordpress.com/2018/03/07/how-to-create-an-ssh-enabled-docker-container-using-kubernetes/
 # ref: https://docs.docker.com/engine/examples/running_ssh_service/
 RUN apt-get update && apt-get install -y openssh-server
 RUN mkdir /var/run/sshd
 RUN echo 'root:MadeUpPassword' | chpasswd
-#RUN sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
-RUN sed -i 's/#PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-
-## this assumes that we're mounting the public key file at /etc/ssh-keys/
-##  kubectl create secret generic ssh-key-secret --from-file=ssh-privatekey=${HOME}/.ssh/id_rsa --from-file=ssh-publickey=${HOME}/.ssh/id_rsa.pub
-#RUN sed -ie 's/^.*authorized_keys/AuthorizedKeysFile \/etc\/ssh-keys\/ssh-publickey/' /etc/ssh/sshd_config
+RUN sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
 
 # SSH login fix. Otherwise user is kicked off after login
 RUN sed 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' -i /etc/pam.d/sshd
@@ -62,33 +34,49 @@ RUN echo "export VISIBLE=now" >> /etc/profile
 
 # ref: https://stackoverflow.com/questions/26286818/connecting-to-exposed-docker-container
 RUN rm -f /etc/ssh/ssh_host_*_key*
-# this script copies ssh keys which have been mounted as Kubernetes secrets into the right places within the container
-RUN python /helpers/copy_ssh_keys.py \
-    --ssh_server_keys_mountpoint=/secrets/ssh_server_keys \
-    --user_keys_mountpoint=/secrets/user_keys \
-    --user_login_public_keys_mountpoint=/secrets/user_login_public_keys
 
-#RUN ls -la /etc/ssh
+RUN mkdir /helpers
+COPY copy_ssh_keys.py /helpers
+RUN mkdir -p ~/.ssh/
 
 EXPOSE 22
 ################## END SSH STUFF ##################
 
+################# BEGIN SUPERVISORD STUFF #################
+# SUPERVISORD for managing multiple processes inside one docker container
+RUN apt-get install -y supervisor
+COPY supervisord.conf /etc/supervisord.conf
+RUN mkdir -p /var/log/supervisor
+################## END SUPERVISORD STUFF ##################
+
+################# BEGIN TESTING STUFF #################
+## This is for testing.  Create a local directory of ssh keys.
+#RUN mkdir -p /secrets/
+#COPY ./ssh_keys_for_testing/ /secrets/
+#RUN ls -la /secrets/
+#RUN ls -la /secrets/ssh-server-keys
+#RUN ls -la /secrets/user-keys
+#RUN ls -la /secrets/user-login-public-keys
+################## END TESTING STUFF ##################
+
+################## BEGIN REPO STUFF ##################
 ## enable downloading from github
 ## ref: https://stackoverflow.com/questions/40469380/docker-how-to-deal-with-ssh-keys-known-hosts-and-authorized-keys
 ## TODO: do we need other services here?
+RUN touch ~/.ssh/known_hosts
 RUN ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts
 RUN ssh-keyscan -t rsa gitlab.com >> ~/.ssh/known_hosts
 RUN ssh-keyscan -t rsa bitbucket.com >> ~/.ssh/known_hosts
+################### END REPO STUFF ###################
 
-# https://medium.com/@SaravSun/admatic-tech-blog-starting-multiple-services-inside-a-container-with-supervisord-16e3beb55916
+################# BEGIN PYTHON STUFF #################
+RUN pip install ipython pandas scikit-learn keras google-cloud-storage cloudml-hypertune Flask gunicorn
+################## END PYTHON STUFF ##################
 
-# Run the web service on container startup. Here we use the gunicorn
-# webserver, with one worker process and 8 threads.
-# For environments with multiple CPU cores, increase the number of workers
-# to be equal to the cores available.
-# ssh ref: https://stackoverflow.com/questions/25135897/how-to-automatically-start-a-service-when-running-a-docker-container/32179054#32179054
+################# BEGIN WEB SERVER STUFF #################
+WORKDIR /app
+COPY . .
 EXPOSE 80
-# TODO: container needs to run a web server which knows how to pull code from github and install python packages
-# could also replace the hardcoded ssh-keyscan lines above with the ability to add them directly
-CMD service ssh start && exec gunicorn --bind :80 --workers 1 --threads 2 app:app
-#ENTRYPOINT service ssh start && /bin/bash
+################## END WEB SERVER STUFF ##################
+
+CMD python /helpers/copy_ssh_keys.py --ssh_server_keys_mountpoint=/secrets/ssh-server-keys --user_keys_mountpoint=/secrets/user-keys --user_login_public_keys_mountpoint=/secrets/user-login-public-keys && /usr/bin/supervisord -c /etc/supervisord.conf

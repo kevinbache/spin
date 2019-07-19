@@ -8,7 +8,11 @@ import os
 import shlex
 import shutil
 from subprocess import Popen, PIPE
-from typing import Text, Tuple, List
+from typing import Text, Tuple, List, Union
+
+
+def resolve_path(path: Union[Text, Path]) -> Path:
+    return Path(path).expanduser().resolve()
 
 
 def shell_run(cmd, shell=True):
@@ -141,9 +145,9 @@ def copy_ssh_keys(
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ssh_server_keys_mountpoint", default='/secrets/ssh_server_keys')
-    parser.add_argument("--user_keys_mountpoint", default='/secrets/user_keys')
-    parser.add_argument("--user_login_public_keys_mountpoint", default='/secrets/user_login_public_keys')
+    parser.add_argument("--ssh_server_keys_mountpoint", default='/secrets/ssh-server-keys')
+    parser.add_argument("--user_keys_mountpoint", default='/secrets/user-keys')
+    parser.add_argument("--user_login_public_keys_mountpoint", default='/secrets/user-login-public-keys')
     args = parser.parse_args()
 
     copy_ssh_keys(**vars(args))

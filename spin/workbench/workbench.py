@@ -1,4 +1,5 @@
 import tempfile
+import time
 from pathlib import Path
 from typing import Text, List, Optional, Tuple, Dict
 
@@ -76,7 +77,7 @@ class Workbench(utils.ShellRunnerMixin):
     USER_KEY_SECRET_TYPE = SecretType('user-keys')
     USER_LOGIN_PUBLIC_KEYS_SECRET_TYPE = SecretType('user-login-public-keys')
 
-    CONTAINER_IMAGE_URI = 'gcr.io/kb-experiment/devbox:latest'
+    DEFAULT_CONTAINER_IMAGE_URI = 'gcr.io/kb-experiment/workbench:latest'
 
     def __init__(
             self,
@@ -86,6 +87,7 @@ class Workbench(utils.ShellRunnerMixin):
             name='spin-workbench',
             master_node_config: NodeConfig = _DEFAULT_MASTER_NODE_CONFIG,
             kubernetes_namespace=constants.DEFAULT_KUBERNETES_NAMESPACE,
+            container_image_uri=DEFAULT_CONTAINER_IMAGE_URI,
             verbose=True,
     ):
         """
@@ -106,7 +108,7 @@ class Workbench(utils.ShellRunnerMixin):
         self.repos = repos
         self.name = name
         self.kubernetes_namespace = kubernetes_namespace
-
+        self.container_image_uri = container_image_uri
         self.ssh_login_key = ssh_login_key
         
         self._secrets = []
@@ -135,7 +137,7 @@ class Workbench(utils.ShellRunnerMixin):
         with tempfile.TemporaryDirectory() as tempdir:
             ssh_keys = []
             for key_type in key_types:
-                private_key_location = f'{tempdir}/{key_type}'
+                private_key_location = f'{tempdir}/ssh_host_{key_type}_key'
                 cmd = f'ssh-keygen -t {key_type} -N "" -f {private_key_location}'
                 self._run(cmd)
                 ssh_key = ssh.SshKeyOnDisk(private_key_location)
@@ -185,53 +187,50 @@ class Workbench(utils.ShellRunnerMixin):
         self._secrets.append(login_keys_secret)
 
         # launch the app to kubernetes
-        service, deployment = kubes.get_service_and_deployment(
+        self._service, self._deployment = kubes.get_service_and_deployment(
             deployment_name=self.name,
-            container_image_uri=self.CONTAINER_IMAGE_URI,
+            container_image_uri=self.container_image_uri,
             service_name=self.name,
             ports=[
                 kubes.KubernetesPort(name='ssh', external_port=22, pod_port=22),
                 kubes.KubernetesPort(name='http', external_port=80, pod_port=80),
             ],
+            secrets=self._secrets,
             num_deployment_replicas=1,
         )
 
-        service.create()
-        deployment.create()
+        # always create your service before your deployment
+        self._service.create()
+        self._deployment.create()
 
+        # TODO: really, we'd like this to be assigned a static DNS name.
+        #   my-workbench.my-username.my-project.cloud.google.com or something.
+        #   the reason is that then the user wouldn't have to reconfigure their IDE every time they shut down
+        #   their workbench.
+        #   we could run a service which would map workbench ip to that statically assigned name.
+        ip, ports_dict = self._service.get_ip_and_ports()
 
-        print(f'secret names: {login_keys_secret.list_names()}')
+        known_hosts_modifier = ssh.KnownHostsModifier()
+        if self.verbose:
+            print(f"Adding workbench's line to {known_hosts_modifier.known_hosts_file}")
+        known_hosts_line = ssh_key_type_to_in_memory_key['rsa'].get_known_hosts_line(ip, ports_dict['ssh'])
+        known_hosts_modifier.add_known_host(known_hosts_line)
 
-        """
-        on launch:
-             generate server keys
-             set login key
-            kube launch deployment
-            kube launch service
-            add server keys to known_hosts.
-        """
+        if self.verbose:
+            ports_str = '\n        '.join([f'{k}: {v}' for k, v in ports_dict.items()])
 
-        """
-        apiVersion: v1
-        kind: Pod
-        metadata:
-          name: mypod
-        spec:
-          containers:
-          - name: mypod
-            image: redis
-            volumeMounts:
-            - name: foo
-              mountPath: "/etc/foo"
-              readOnly: true
-          volumes:
-          - name: foo
-            secret:
-              secretName: mysecret
-              items:
-              - key: username
-                path: my-group/my-username
-        """
+            port = ports_dict['ssh']
+            port_str = '' if port == 22 else '-p {port}'
+            ssh_str = f"ssh root@{ip} {port_str}"
+
+            print(f"""
+    Your workbench, {self.name}, has been created using container at {self.container_image_uri}  
+    It has an IP address of {ip} and opens the following ports:
+        {ports_str}
+    
+    You can ssh into it with the following command:
+        {ssh_str} 
+    """)
 
 
 if __name__ == '__main__':
@@ -240,7 +239,7 @@ if __name__ == '__main__':
         cloud_config=CloudConfig(cloud_project='kb-experirment', zone='us-central1-a'),
         repos=[GithubRepo(repo_url='git@github.com:kevinbache/spin.git', ssh_key=ssh_key)],
         ssh_login_key=ssh_key,
-        name='spin-workbench',
+        name='spin-workbench6',
     )
     wb.create()
 

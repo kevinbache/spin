@@ -10,8 +10,6 @@ import time
 from typing import Text, Dict, Any, Union
 import yaml
 
-from spin import settings
-
 
 def snake_2_camel(name, do_cap_first=False):
     words = name.split('_')
@@ -165,14 +163,12 @@ def render_template(template_fullfile: Text, context_dict: Dict):
 
 
 def file_exists(filename_or_path: Union[Text, Path]):
-    if isinstance(filename_or_path, Text):
-        filename_or_path = Path(filename_or_path)
+    filename_or_path = Path(filename_or_path)
     return filename_or_path.exists() and filename_or_path.is_file()
 
 
 def dir_exists(filename_or_path: Union[Text, Path]):
-    if isinstance(filename_or_path, Text):
-        filename_or_path = Path(filename_or_path)
+    filename_or_path = Path(filename_or_path)
     return filename_or_path.exists() and filename_or_path.is_dir()
 
 
@@ -180,10 +176,10 @@ def resolve_path(path: Union[Text, Path]) -> Path:
     return Path(path).expanduser().resolve()
 
 
-if __name__ == '__main__':
-    # if confirm_prompt('Do you want to continue?'):
-    #     print("Continued!")
-    # else:
-    #     print("Stopped!")
-
-    render_template(settings.TEMPLATES_DIR)
+# if __name__ == '__main__':
+#     # if confirm_prompt('Do you want to continue?'):
+#     #     print("Continued!")
+#     # else:
+#     #     print("Stopped!")
+#
+#     render_template(settings.TEMPLATES_DIR)

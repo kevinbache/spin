@@ -1,4 +1,5 @@
 """This module contains utilities for working with SSH on a local machine."""
+import abc
 import os
 import re
 from pathlib import Path
@@ -252,7 +253,20 @@ class SshKeyCreator(utils.ShellRunnerMixin):
             )
 
 
-class SshKeyOnDisk(utils.DictBouncer):
+class SshKey(utils.DictBouncer, abc.ABC):
+    @abc.abstractmethod
+    def read_public(self):
+        pass
+
+    @abc.abstractmethod
+    def read_private(self):
+        pass
+
+    def get_known_hosts_line(self, ip: Text, port: int):
+        return f'[{ip}]:{port} {self.read_public()}'
+
+
+class SshKeyOnDisk(SshKey):
     PUB_SUFFIX = '.pub'
 
     def __init__(self, private_key_file: Text):
@@ -295,8 +309,9 @@ class SshKeyOnDisk(utils.DictBouncer):
         return open(str(self.private_key_path), 'r').read()
 
 
-class SshKeyInMemory:
+class SshKeyInMemory(SshKey):
     def __init__(self, ssh_key_on_disk: SshKeyOnDisk):
+        super().__init__()
         self._private_key_contents = ssh_key_on_disk.read_private()
         self._public_key_contents = ssh_key_on_disk.read_public()
 

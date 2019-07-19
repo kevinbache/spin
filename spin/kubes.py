@@ -1,8 +1,9 @@
 import abc
 import json
 import subprocess
+import time
 from pathlib import Path
-from typing import Text, List, Iterable
+from typing import Text, List, Iterable, Tuple, Dict
 
 import yaml
 
@@ -72,6 +73,23 @@ class KubernetesSecret(_KubernetesObject):
         cmd = f'kubectl create secret generic {self.name} {all_files_str}'
         return self._run(cmd)
 
+    def to_volume_mount(self):
+        return {
+            # todo: convert this to volume_name? what would the point be?
+            'name': self.name,
+            'mountPath': self.mount_point_on_pod,
+            'readOnly': True,
+        }
+
+    def to_volume(self):
+        return {
+            # todo: convert this to volume_name? what would the point be?
+            'name': self.name,
+            'secret': {
+                'secretName': self.name,
+            }
+        }
+
 
 class _KubernetesApplyObject(_KubernetesObject, abc.ABC):
     """A _KubernetesObject which creates via `kubectl apply`"""
@@ -102,63 +120,16 @@ class KubernetesPort:
         self.pod_port = pod_port
         self.protocol = protocol
 
-    def to_port_yaml(self):
-        return _SERVICE_PORT_TEMPLATE.format(
-            name=self.name,
-            external_port=self.external_port,
-            pod_port=self.pod_port,
-            protocol=self.protocol,
-        )
+    def to_container_port(self):
+        return {'containerPort': self.pod_port}
 
-
-# name = 'asdf'
-# num_replicas = 1
-# container_image_uri = 'asdfasdf'
-#
-
-# _DEPLOYMENT_TEMPLATE = """
-# apiVersion: apps/v1
-# kind: Deployment
-# metadata:
-#   name: {name}
-# spec:
-#   selector:
-#     matchLabels:
-#       run: {name}
-#   replicas: {num_replicas}
-#   template:
-#     metadata:
-#       labels:
-#         run: {name}
-#     spec:
-#       containers:
-#       - name: {name}
-#         image: {container_image_uri}
-#         ports:
-#         {ports}
-# """
-
-"""
-apiVersion: v1
-kind: Pod
-metadata:
-  name: mypod
-spec:
-  containers:
-  - name: mypod
-    image: redis
-    volumeMounts:
-    - name: foo
-      mountPath: "/etc/foo"
-      readOnly: true
-  volumes:
-  - name: foo
-    secret:
-      secretName: mysecret
-      items:
-      - key: username
-        path: my-group/my-username
-"""
+    def to_service_port(self):
+        return {
+            'name': self.name,
+            'port': self.external_port,
+            'targetPort': self.pod_port,
+            'protocol': self.protocol,
+        }
 
 
 class KubernetesDeployment(_KubernetesApplyObject):
@@ -166,8 +137,8 @@ class KubernetesDeployment(_KubernetesApplyObject):
             self,
             name: Text,
             container_image_uri: Text,
-            secrets: Iterable[KubernetesSecret],
-            ports: Iterable[KubernetesServicePort] = (80,),
+            secrets: Iterable[KubernetesSecret] = (),
+            ports: Iterable[KubernetesPort] = (),
             num_replicas=1,
     ):
         super().__init__(object_type='deployment', name=name)
@@ -207,31 +178,20 @@ class KubernetesDeployment(_KubernetesApplyObject):
                 },
             },
         }
+
+        pod_spec_dict = deployment_dict['spec']['template']['spec']
+        container_dict = pod_spec_dict['containers'][0]
         if self.ports:
-            deployment_dict['spec']['template']['spec']['containers'][0]['ports'] = \
-                [{'containerPort': port.pod_port} for port in self.ports]
+            container_dict['ports'] = [port.to_container_port() for port in self.ports]
 
-    # _SERVICE_PORT_TEMPLATE = '''  - name: {name}
-#     port: {external_port}
-#     targetPort: {pod_port}
-#     protocol: {protocol}'''
+        if self.secrets:
+            container_dict['volumeMounts'] = [secret.to_volume_mount() for secret in self.secrets]
+            if 'volumes' not in pod_spec_dict:
+                pod_spec_dict['volumes'] = []
+            pod_spec_dict['volumes'].extend([secret.to_volume() for secret in self.secrets])
 
-
-
-# _SERVICE_TEMPLATE = '''
-# apiVersion: v1
-# kind: Service
-# metadata:
-#   name: {name}
-#   labels:
-#     run: {deployment_name}
-# spec:
-#   type: LoadBalancer
-#   ports:
-# {ports}
-#   selector:
-#     run: {deployment_name}
-# '''
+        yaml_str = '\n' + yaml.dump(deployment_dict)
+        return yaml_str
 
 
 class KubernetesService(_KubernetesApplyObject):
@@ -241,13 +201,57 @@ class KubernetesService(_KubernetesApplyObject):
         self.ports = ports
 
     def _get_yaml(self):
-        ports_str = '\n'.join([port.to_port_yaml() for port in self.ports])
+        service_dict = {
+            'apiVersion': 'v1',
+            'kind': 'Service',
+            'metadata': {
+                'name': self.name,
+                'labels': {
+                    'run': self.deployment_name,
+                }
+            },
+            'spec': {
+                'type': 'LoadBalancer',
+                'selector': {
+                    'run': self.deployment_name,
+                }
+            }
+        }
+        if self.ports:
+            service_dict['spec']['ports'] = [port.to_service_port() for port in self.ports]
 
-        return _SERVICE_TEMPLATE.format(
-            name=self.name,
-            deployment_name = self.deployment_name,
-            ports=ports_str,
-        )
+        yaml_str = '\n' + yaml.dump(service_dict)
+        return yaml_str
+
+    def get_ip_and_ports(self, do_error_on_fail=False) -> Tuple[Text, Dict[Text, int]]:
+        ip, ports_dict = self._get_ip_and_ports()
+        if ip is None and do_error_on_fail:
+            raise ValueError(f"Service, {self.name}, has no ip")
+
+        while ip is None:
+            time.sleep(5)
+            if self.verbose:
+                print(f"Waiting for service, {self.name}, to go live.  This may take about a minute.")
+            ip, ports_dict = self._get_ip_and_ports()
+
+        return ip, ports_dict
+
+    def _get_ip_and_ports(self):
+        """ Get the ip address and ports for the given service.
+
+        Returns:
+            ip address of the service endpoint and dict mapping service name to external port number
+        """
+        # get devbox ip address
+        _, out, _ = self._run(f'kubectl get svc {self.name} -o json')
+        out = json.loads(out)
+        load_balancer_dict = out['status']['loadBalancer']
+        if 'ingress' not in load_balancer_dict:
+            return None, None
+        ip = load_balancer_dict['ingress'][0]['ip']
+        ports = out['spec']['ports']
+        ports_dict = {port['name']: port['port'] for port in ports}
+        return ip, ports_dict
 
 
 def get_service_and_deployment(
@@ -255,31 +259,34 @@ def get_service_and_deployment(
         container_image_uri: Text,
         service_name: Text,
         ports: List[KubernetesPort],
+        secrets: List[KubernetesSecret],
         num_deployment_replicas: int = 1,
 ):
-    """Get a paired deployment and service.  They won't be created."""
-    deployment = KubernetesDeployment(
-        name=deployment_name,
-        container_image_uri=container_image_uri,
-        ports=(port.pod_port for port in ports),
-        num_replicas=num_deployment_replicas,
-    )
+    """Get a paired deployment and service.  They won't be created.  Create your service first."""
     service = KubernetesService(
         name=service_name,
         deployment_name=deployment_name,
         ports=ports,
     )
+
+    deployment = KubernetesDeployment(
+        name=deployment_name,
+        container_image_uri=container_image_uri,
+        ports=ports,
+        secrets=secrets,
+        num_replicas=num_deployment_replicas,
+    )
     return service, deployment
 
 
 if __name__ == '__main__':
-    # secret = KubernetesSecret(name='spin-workbench-ssh-server-keys', files=[])
-    # print(secret.list())
-    # print(secret.list_names())
-    # print(secret.exists())
-    # secret.delete()
-    # print(secret.exists())
-    #
+    secret = KubernetesSecret(name='spin-workbench-ssh-server-keys', files=[], mount_point_on_pod='/secrets/mnt/')
+    print(secret.list())
+    print(secret.list_names())
+    print(secret.exists())
+    secret.delete()
+    print(secret.exists())
+
     # namespace = KubernetesNamespace(name='blah')
     # print(namespace.list())
     # print(namespace.list_names())
@@ -287,21 +294,28 @@ if __name__ == '__main__':
     # namespace.delete()
     # print(namespace.exists())
 
+    ssh_port = KubernetesPort(name='ssh', external_port=22, pod_port=22)
+    ports = [
+        ssh_port,
+        KubernetesPort(name='http', external_port=80, pod_port=80),
+    ]
+
     # dep = KubernetesDeployment(
     #     name='my-workbench-deployment',
     #     container_image_uri='gcr.io/kb-experiment/devbox:latest',
-    #     ports=(80, 22),
+    #     ports=ports,
+    #     secrets=[secret],
     # )
-    # print(dep.create(dry_run=False))
-    # print(dep.list())
+    # print(dep.create(dry_run=True))
+    # print(dep.list_names())
 
-    # ports = [
-    #     KubernetesServicePort(name='ssh', external_port=22, pod_port=22),
-    #     KubernetesServicePort(name='http', external_port=80, pod_port=80),
-    # ]
-    # service = KubernetesService(name='devbox-service', deployment_name='devbox', ports=ports)
-    # print(service.create(dry_run=False))
-    # print(service.list_names())
-    #
-    import yaml
-    print(yaml.dump(deployment))
+    service = KubernetesService(name='devbox-service', deployment_name='devbox', ports=ports)
+    print(service.create(dry_run=False))
+    print(service.list_names())
+
+    ip, ports = service.get_ip_and_ports()
+    print(ip)
+    print(ports)
+
+    # import yaml
+    # print(yaml.dump(deployment))
