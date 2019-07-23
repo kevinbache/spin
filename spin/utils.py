@@ -163,12 +163,12 @@ def render_template(template_fullfile: Text, context_dict: Dict):
 
 
 def file_exists(filename_or_path: Union[Text, Path]):
-    filename_or_path = Path(filename_or_path)
+    filename_or_path = resolve_path(filename_or_path)
     return filename_or_path.exists() and filename_or_path.is_file()
 
 
 def dir_exists(filename_or_path: Union[Text, Path]):
-    filename_or_path = Path(filename_or_path)
+    filename_or_path = resolve_path(filename_or_path)
     return filename_or_path.exists() and filename_or_path.is_dir()
 
 

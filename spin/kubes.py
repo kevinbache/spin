@@ -91,6 +91,12 @@ class KubernetesSecret(_KubernetesObject):
         }
 
 
+class EmptyKubernetesSecret(KubernetesSecret):
+    """Just a placeholder for a secret name to make sure we delete it with the deployment"""
+    def __init__(self, name: Text):
+        super().__init__(name, files=[], mount_point_on_pod='')
+
+
 class _KubernetesApplyObject(_KubernetesObject, abc.ABC):
     """A _KubernetesObject which creates via `kubectl apply`"""
     @abc.abstractmethod

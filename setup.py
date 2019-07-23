@@ -8,6 +8,7 @@ setup(
     install_requires=[
         'Click',
         'cookiecutter',
+        'sshconf',
     ],
     packages=find_packages(),
     classifiers=[],

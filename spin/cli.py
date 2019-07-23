@@ -1,11 +1,10 @@
-import shutil
 import time
-from pathlib import Path
 
 import click
 from cookiecutter.main import cookiecutter
 
 from spin import settings, spin_config, utils, ssh
+from spin.workbench import workbench as workbench_module
 
 
 ############################################
@@ -26,22 +25,24 @@ def root(ctx):
 @click.option('--name', help="Your full name", prompt="Your full name (spaces fine, no quotes needed)")
 @click.option('--email', help="Your email", prompt="Your email")
 @click.option('--github-username', help="Your Github Username", prompt="Your Github Username")
-# @click.option(
-#     '--private-key',
-#     help="The path to a private ssh key on your local machine",
-#     prompt="The path to a private ssh key on your local machine",
-#     default='~/.ssh/id_rsa',
-# )
+@click.option(
+    '--private-key-filename',
+    help="The path to a private ssh key on your local machine",
+    prompt="The path to a private ssh key on your local machine",
+    default='~/.ssh/id_rsa',
+)
 # def init(ctx, name, email, github_username, private_key_filename):
-def init(ctx, name, email, github_username):
+def init(ctx, name, email, github_username, private_key_filename):
     """Create .spinrc in your home directory + create or claim a private key."""
-    # if not utils.file_exists(private_key_filename):
-    #     creator = ssh.SshKeyCreator(private_key_filename, comment=email)
-    #     creator.create(do_error_if_exists=True, do_add_ssh_config_entry=False)
+    if not utils.file_exists(private_key_filename):
+        creator = ssh.SshKeyCreator(private_key_filename, comment=email)
+        creator.create(do_error_if_exists=True, do_add_ssh_config_entry=False)
 
+    # gcloud config get-value project ==> kb-experiment
     rc = spin_config.SpinRc(
         spin_config.SpinRcUser(name, email, github_username),
         projects=[],
+        ssh_keys=[spin_config.SpinRcSshKey(private_key_filename)],
     )
     rc.save()
 
@@ -97,22 +98,65 @@ def project(ctx, pkg_slug, output_dir, config, install, set_current):
     rc.save()
 
 
+
 ############################################
 # up cluster
 ############################################
 @up.command()
 @click.pass_context
-def cluster(ctx):
-    """Create an empty cluster using the config.py located in your current project."""
-    config = spin_config.load_project_config_from_spinrc()
-    utils.confirm_prompt(f"You are about to spin up a cluster for the project {config.name}")
+@click.argument('name', default='my-workbench')
+def workbench(ctx, name):
+    """Create a workbench."""
+    spin_rc = spin_config.SpinRc.load()
+    if len(spin_rc.ssh_keys) > 0:
+        spin_rc_ssh_key = spin_rc.ssh_keys[0]
+    else:
+        raise ValueError("You haven't set any ssh keys.  Run `spin init`.")
 
-    print(f"Creating cluster: {config.cluster.name}...")
-    config.cluster.create()
-    for name, node_pool in config.cluster.node_pools.items():
-        print(f"  creating node pool {name}")
-        node_pool.create()
+    private_key = spin_rc_ssh_key['private_key_file']
+    if not utils.file_exists(private_key):
+        raise ValueError(f"Your private key, {private_key}, does not exist.")
 
+    # spinrc needs cloud_project, zone, and ssh key
+    wb = workbench_module.Workbench(
+        # TODO: use CloudConfig
+        cloud_config=workbench_module.CloudConfig(cloud_project='', zone=''),
+        # repos=[GithubRepo(repo_url='git@github.com:kevinbache/spin.git', ssh_key=ssh_key)],
+        repos=[],
+        ssh_login_key=ssh.SshKeyOnDisk(private_key),
+        name=name,
+    )
+    wb.create()
+
+
+
+
+    # utils.confirm_prompt(f"You are about to spin up a cluster for the project {config.name}")
+
+    # print(f"Creating workbench: {config.cluster.name}...")
+    # config.cluster.create()
+    # for name, node_pool in config.cluster.node_pools.items():
+    #     print(f"  creating node pool {name}")
+    #     node_pool.create()
+
+
+
+# ############################################
+# # up cluster
+# ############################################
+# @up.command()
+# @click.pass_context
+# def cluster(ctx):
+#     """Create an empty cluster using the config.py located in your current project."""
+#     config = spin_config.load_project_config_from_spinrc()
+#     utils.confirm_prompt(f"You are about to spin up a cluster for the project {config.name}")
+#
+#     print(f"Creating cluster: {config.cluster.name}...")
+#     config.cluster.create()
+#     for name, node_pool in config.cluster.node_pools.items():
+#         print(f"  creating node pool {name}")
+#         node_pool.create()
+#
 #
 # ############################################
 # # set

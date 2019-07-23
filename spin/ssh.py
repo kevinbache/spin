@@ -3,7 +3,7 @@ import abc
 import os
 import re
 from pathlib import Path
-from typing import Text, Optional, Union
+from typing import Text, Optional, Union, List
 
 from spin import utils
 
@@ -18,7 +18,7 @@ def add_line_if_does_not_exist(filename: Union[Text, Path], line: Text):
         if line in lines:
             return
         else:
-            f.writelines([line])
+            f.writelines([line + '\n'])
     return
 
 
@@ -28,6 +28,35 @@ class KnownHostsModifier:
 
     def add_known_host(self, line: Text):
         add_line_if_does_not_exist(self.known_hosts_file, line)
+
+    def _get_lines(self) -> List[Text]:
+        with open(str(self.known_hosts_file), 'r') as f:
+            lines = f.readlines()
+        return lines
+
+    def _write_lines(self, lines: List[Text]):
+        with open(str(self.known_hosts_file), 'w') as f:
+            f.writelines(lines)
+
+    def remove_line(self, line: Text):
+        lines = self._get_lines()
+
+        # last line might not end in newline
+        if not lines[-1].endswith('\n'):
+            lines[-1] += '\n'
+
+        if not line.endswith('\n'):
+            line += '\n'
+        if line in lines:
+            lines.remove(line)
+
+        self._write_lines(lines)
+
+    def remove_all_lines_for_hostname(self, host_name: Text, port: Optional[int] = None):
+        lines = self._get_lines()
+        host_str = host_name if port is None else f'[{host_name}]:{port}'
+        out_lines = [line for line in lines if not line.startswith(host_str)]
+        self._write_lines(out_lines)
 
 
 class FileBlockModifier:
@@ -91,14 +120,8 @@ class SshConfigModifier:
         if not self.config_path.exists() and self.error_if_config_does_not_exist:
             raise IOError(f'SSH config file, {str(self.config_path)} does not exist.')
 
-        self.verbose = verbose
-
         self.file_modifier = FileBlockModifier()
-
-    # https://unix.stackexchange.com/questions/69314/automated-ssh-keygen-without-passphrase-how
-    '''ssh-keygen -b 2048 -t rsa -f /tmp/sshkey -q -N ""'''
-    # correct permissions: https://gist.github.com/grenade/6318301
-    # generate with email: https://help.github.com/en/articles/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent
+        self.verbose = verbose
 
     @classmethod
     def _add_to_hosts_dict(cls, d, key, value):
@@ -162,6 +185,12 @@ class SshConfigModifier:
 
         return new_hosts_entry_str
 
+    def remove(self, name: Text):
+        from sshconf import read_ssh_config
+        conf = read_ssh_config(self.config_path)
+        conf.remove(name)
+        conf.write(self.config_path)
+
 
 class SshKeyCreator(utils.ShellRunnerMixin):
     def __init__(
@@ -195,7 +224,7 @@ class SshKeyCreator(utils.ShellRunnerMixin):
 
     @classmethod
     def get_private_from_pub(cls, public_key_path: Path):
-        if public_key_path.suffix != '.pub':
+        if Path(public_key_path).suffix != '.pub':
             raise ValueError(f"Expected public key filename to end in .pub.  Got: {str(public_key_path)}.")
         return Path(str(public_key_path[:-4]))
 
@@ -316,13 +345,18 @@ class SshKeyOnDisk(SshKey):
 
 
 class SshKeyInMemory(SshKey):
-    def __init__(self, ssh_key_on_disk: SshKeyOnDisk):
+    def __init__(self, public_key_contents: Text, private_key_data: Text):
         super().__init__()
-        self._private_key_contents = ssh_key_on_disk.read_private()
-        self._public_key_contents = ssh_key_on_disk.read_public()
+        self._public_key_contents = public_key_contents
+        self._private_key_contents = private_key_data
 
     def read_public(self):
         return self._public_key_contents
 
     def read_private(self):
         return self._private_key_contents
+
+    @classmethod
+    def from_on_disk_key(cls, ssh_key_on_disk: SshKeyOnDisk):
+        return cls(ssh_key_on_disk.read_public(), ssh_key_on_disk.read_private())
+
