@@ -10,3 +10,4 @@ Run `gcloud init` from the google cloud CLI.
 
 Then try `spin init` from the command line followed by `spin up workbench`.
 
+There's also `spin up project <project_name>` which will create a directory containing the skeleton for a new python project.
